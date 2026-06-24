@@ -1,0 +1,12 @@
+# Segreti: MAI su GitHub (token e chiavi vanno nei Secrets cifrati del repo)
+.env
+_longuser.txt
+
+# File transitori
+proposte.csv
+*_log.txt
+__pycache__/
+*.pyc
+
+# Backup locale
+reply_bot_v1_backup.py

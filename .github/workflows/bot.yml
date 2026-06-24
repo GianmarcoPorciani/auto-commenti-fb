@@ -1,0 +1,41 @@
+name: auto-commenti-fb
+
+on:
+  schedule:
+    - cron: "0 */2 * * *"   # ogni 2 ore (orario UTC; puo' ritardare di qualche minuto)
+  workflow_dispatch: {}       # permette anche l'avvio manuale dal sito GitHub
+
+# evita che due esecuzioni si sovrappongano
+concurrency:
+  group: bot
+  cancel-in-progress: false
+
+permissions:
+  contents: write             # serve per ri-salvare lo stato (done/visti/likati) nel repo
+
+jobs:
+  rispondi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installa dipendenze
+        run: pip install -r requirements.txt
+
+      - name: Rispondi + like ai commenti nuovi
+        env:
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -u reply_bot.py --ultimi-post 5 --live --max 25
+
+      - name: Salva lo stato nel repo
+        run: |
+          git config user.name "auto-commenti-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add done.json visti.json likati.json || true
+          git commit -m "stato aggiornato" || echo "niente di nuovo da salvare"
+          git push || true
