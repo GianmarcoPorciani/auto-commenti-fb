@@ -147,7 +147,9 @@ Ricevi PIU' commenti numerati. Per OGNI commento restituisci una voce con:
    "sostenitore" (d'accordo, complimenti, indignazione allineata, sostiene la posizione del post)
    "critico" (attacca, dissente, polemizza, prende in giro)
    "neutro" (domande pratiche o commenti generici senza schieramento)
-   "volgare" (insulti pesanti, parolacce, bestemmie, anche se "dalla nostra parte")
+   "volgare" SOLO se contiene parolacce esplicite, insulti pesanti o bestemmie. NON classificare
+   volgare un commento che usa parole forti ma è di SOSTEGNO (es. "traditori", "vergogna", "schifo",
+   "fanno schifo" riferiti agli avversari/al sistema): quelli sono "sostenitore".
    "spam" (pubblicita', link, off-topic, bot)
 - rispondere: true SOLO se categoria = "sostenitore", altrimenti false
 - risposta: se rispondere=true, una risposta BREVE (1-2 frasi), calorosa, nel tono diretto di
@@ -374,7 +376,8 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, csv_writer,
                                   "risposta": risposta, "categoria": "sostenitore", "fonte": "template"})
             if autore_id:
                 autori_visti.add(autore_id)
-            visti.add(cid)
+            # NB: niente 'visti' qui: il template viene ri-riconosciuto gratis dal pre-filtro,
+            # e va in done.json quando risposto. Cosi' non resta bloccato senza risposta.
         else:
             da_classificare.append({"cid": cid, "autore": c["autore_nome"],
                                     "autore_id": autore_id, "message": msg})
@@ -386,7 +389,6 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, csv_writer,
     risultati = classifica_tutti(client, da_classificare) if da_classificare else {}
     for it in da_classificare:
         cid = it["cid"]
-        visti.add(cid)
         r = risultati.get(cid)
         cat = r.get("categoria", "?") if r else "errore"
         rispondo = bool(r and r.get("rispondere") and cat == "sostenitore")
@@ -395,11 +397,18 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, csv_writer,
             da_likare.append(cid)   # like a TUTTI i sostenitori, anche se non rispondiamo
         csv_writer.writerow([post_id, it["autore"], it["message"][:120], cat,
                              "SI" if rispondo else "no", risposta])
-        if rispondo and risposta and it["autore_id"] not in autori_visti:
-            da_rispondere.append({"cid": cid, "autore": it["autore"], "autore_id": it["autore_id"],
-                                  "risposta": risposta, "categoria": cat, "fonte": "llm"})
-            if it["autore_id"]:
-                autori_visti.add(it["autore_id"])
+        if rispondo and risposta:
+            if it["autore_id"] not in autori_visti:
+                da_rispondere.append({"cid": cid, "autore": it["autore"], "autore_id": it["autore_id"],
+                                      "risposta": risposta, "categoria": cat, "fonte": "llm"})
+                if it["autore_id"]:
+                    autori_visti.add(it["autore_id"])
+            # NB: i sostenitori da rispondere NON vengono segnati 'visti'. Vanno in done.json quando
+            # risposti; se restano fuori per il tetto --max, al prossimo giro vengono ritentati.
+        elif r is not None:
+            # solo i NON-sostenitori (classificati con successo) vengono segnati 'visti' = saltati
+            # per sempre senza ri-classificarli. Se r è None (errore), si ritenta al prossimo giro.
+            visti.add(cid)
     # i template li mettiamo anche nel CSV
     for d in da_rispondere:
         if d["fonte"] == "template":
@@ -496,6 +505,9 @@ def main():
 
     done = _carica_set(DONE_FILE)
     visti = _carica_set(VISTI_FILE)
+    # AUTO-RECOVERY: un sostenitore a cui abbiamo messo like ma non ancora risposto NON deve
+    # restare "visto" (altrimenti verrebbe saltato per sempre). Lo togliamo da visti -> ritentato.
+    visti -= (_carica_set(LIKATI_FILE) - done)
 
     f_csv = open(CSV_FILE, "w", newline="", encoding="utf-8-sig")
     writer = csv.writer(f_csv)

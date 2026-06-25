@@ -30,7 +30,7 @@ jobs:
         env:
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python -u reply_bot.py --ultimi-post 5 --live --max 25
+        run: python -u reply_bot.py --ultimi-post 5 --live --max 40
 
       - name: Salva lo stato nel repo
         run: |
