@@ -1,44 +1,42 @@
-name: auto-commenti-fb
+name: auto-commenti-fb (giro lampo)
+
+# Giro extra piu' frequente, ma SOLO quando c'e' un post fresco (spinta "ora d'oro").
+# Se non ci sono post recenti, esce subito (costo zero).
 
 on:
   schedule:
-    # ogni ORA, solo di giorno. Cron in UTC: 04-22 UTC = circa 06:00-24:00 ora italiana.
-    # In piu', il bot stesso salta le ore 00-06 italiane (gestione precisa di ora legale/solare).
-    - cron: "0 4-22 * * *"
-  workflow_dispatch: {}       # permette anche l'avvio manuale dal sito GitHub
+    # ai minuti :20 e :40 di ogni ora diurna (il giro normale gira al minuto :00)
+    - cron: "20,40 4-22 * * *"
+  workflow_dispatch: {}
 
-# evita che due esecuzioni si sovrappongano
+# stesso gruppo del giro normale: i due non si sovrappongono mai (niente doppioni)
 concurrency:
   group: bot
   cancel-in-progress: false
 
 permissions:
-  contents: write             # serve per ri-salvare lo stato (done/visti/likati) nel repo
+  contents: write
 
 jobs:
-  rispondi:
+  lampo:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Installa dipendenze
         run: pip install -r requirements.txt
-
-      - name: Rispondi + like ai commenti nuovi
+      - name: Giro lampo (solo se post < 3h)
         env:
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python -u reply_bot.py --ultimi-post 5 --live --max 40
-
+        run: python -u reply_bot.py --ultimi-post 2 --live --max 40 --solo-se-post-recente 3
       - name: Salva lo stato nel repo
         run: |
           git config user.name "auto-commenti-bot"
           git config user.email "bot@users.noreply.github.com"
           git pull --rebase --autostash || true
           git add done.json visti.json likati.json || true
-          git commit -m "stato aggiornato" || echo "niente di nuovo da salvare"
+          git commit -m "stato aggiornato (lampo)" || echo "niente di nuovo da salvare"
           git push || true
