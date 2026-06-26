@@ -71,6 +71,7 @@ DELAY_MAX = 55
 DONE_FILE = "done.json"      # id dei commenti gia' PUBBLICATI (per non ri-rispondere)
 VISTI_FILE = "visti.json"    # id dei commenti gia' ANALIZZATI (per non ri-classificare)
 LIKATI_FILE = "likati.json"  # id dei commenti a cui abbiamo gia' messo like
+CODA_FILE = "coda.json"      # sostenitori classificati con risposta pronta, in attesa di pubblicazione
 CSV_FILE = "proposte.csv"
 
 # Like ai commenti sostenitori: azione leggera/basso rischio, pause brevi.
@@ -342,11 +343,25 @@ def _salva_set(path, s):
         json.dump(sorted(s), f, ensure_ascii=False, indent=0)
 
 
+def _carica_dict(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+            return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _salva_dict(path, d):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False, indent=0)
+
+
 # ---------------------------------------------------------------------------
 # LAVORAZIONE DI UN POST (2 fasi: classifica, poi pubblica)
 # ---------------------------------------------------------------------------
 
-def lavora_post(client, token, page_id, post_id, live, done, visti, csv_writer,
+def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_writer,
                 max_pub=None, no_like=False):
     print(f"\n=== Post {post_id} ===")
     commenti = get_comments(token, post_id, page_id)
@@ -366,10 +381,28 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, csv_writer,
         autore_id = c["autore_id"]
         if not msg:
             continue
-        if cid in done or cid in visti or c["gia_risposto_pagina"]:
+        # FIX: non processare MAI i commenti scritti dalla Pagina stessa (altrimenti il bot
+        # mette like e risponde ai propri commenti, gonfiando likati.json e parlando da solo).
+        if autore_id == page_id:
+            continue
+        if cid in done or c["gia_risposto_pagina"]:
             n_saltati_gia += 1
+            coda.pop(cid, None)   # gia' risposto: esce dalla coda
             continue
         if autore_id and autore_id in autori_visti:
+            continue
+        # Gia' classificato sostenitore in un giro precedente: risposta pronta in coda.
+        # Va dritto alla pubblicazione, SENZA ri-chiamare Claude (drenaggio del backlog).
+        if cid in coda:
+            da_likare.append(cid)
+            da_rispondere.append({"cid": cid, "autore": c["autore_nome"], "autore_id": autore_id,
+                                  "risposta": coda[cid].get("risposta", ""),
+                                  "categoria": "sostenitore", "fonte": "coda"})
+            if autore_id:
+                autori_visti.add(autore_id)
+            continue
+        if cid in visti:
+            n_saltati_gia += 1
             continue
         if e_banale_positivo(msg):
             da_likare.append(cid)
@@ -377,6 +410,7 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, csv_writer,
             tmpl_counter += 1
             da_rispondere.append({"cid": cid, "autore": c["autore_nome"], "autore_id": autore_id,
                                   "risposta": risposta, "categoria": "sostenitore", "fonte": "template"})
+            coda[cid] = {"risposta": risposta, "autore_id": autore_id}
             if autore_id:
                 autori_visti.add(autore_id)
             # NB: niente 'visti' qui: il template viene ri-riconosciuto gratis dal pre-filtro,
@@ -404,6 +438,7 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, csv_writer,
             if it["autore_id"] not in autori_visti:
                 da_rispondere.append({"cid": cid, "autore": it["autore"], "autore_id": it["autore_id"],
                                       "risposta": risposta, "categoria": cat, "fonte": "llm"})
+                coda[cid] = {"risposta": risposta, "autore_id": it["autore_id"]}
                 if it["autore_id"]:
                     autori_visti.add(it["autore_id"])
             # NB: i sostenitori da rispondere NON vengono segnati 'visti'. Vanno in done.json quando
@@ -418,6 +453,7 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, csv_writer,
             csv_writer.writerow([post_id, d["autore"], "(banale)", "sostenitore", "SI", d["risposta"]])
 
     _salva_set(VISTI_FILE, visti)
+    _salva_dict(CODA_FILE, coda)
     print(f"  sostenitori da likare: {len(da_likare)} | a cui risponderei: {len(da_rispondere)} "
           f"({tmpl_counter} template + {len(da_rispondere) - tmpl_counter} generate)")
 
@@ -454,6 +490,8 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, csv_writer,
             post_reply(token, d["cid"], d["risposta"])
             done.add(d["cid"])
             _salva_set(DONE_FILE, done)
+            coda.pop(d["cid"], None)
+            _salva_dict(CODA_FILE, coda)
             n_pub += 1
             errori = 0
             print(f"  [PUBBLICATO] {d['autore']}: {d['risposta']}")
@@ -540,8 +578,10 @@ def main():
 
     done = _carica_set(DONE_FILE)
     visti = _carica_set(VISTI_FILE)
+    coda = _carica_dict(CODA_FILE)
     # AUTO-RECOVERY: un sostenitore a cui abbiamo messo like ma non ancora risposto NON deve
-    # restare "visto" (altrimenti verrebbe saltato per sempre). Lo togliamo da visti -> ritentato.
+    # restare "visto" (altrimenti verrebbe saltato per sempre). Lo togliamo da visti -> ritentato,
+    # cosi' viene classificato una volta e finisce in coda per la pubblicazione.
     visti -= (_carica_set(LIKATI_FILE) - done)
 
     f_csv = open(CSV_FILE, "w", newline="", encoding="utf-8-sig")
@@ -551,13 +591,13 @@ def main():
     try:
         if args.post:
             pid = estrai_post_id(args.post, page_id)
-            lavora_post(client, token, page_id, pid, args.live, done, visti, writer,
+            lavora_post(client, token, page_id, pid, args.live, done, visti, coda, writer,
                         args.max, args.no_like)
         else:
             posts = get_posts(token, page_id, args.ultimi_post)
             print(f"{len(posts)} post da lavorare")
             for p in posts:
-                lavora_post(client, token, page_id, p["id"], args.live, done, visti, writer,
+                lavora_post(client, token, page_id, p["id"], args.live, done, visti, coda, writer,
                             args.max, args.no_like)
     finally:
         f_csv.close()
