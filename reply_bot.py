@@ -487,6 +487,8 @@ def main():
                     help="in --live, pubblica al massimo N risposte per post (sicurezza anti-spam)")
     ap.add_argument("--no-like", action="store_true",
                     help="non mettere like ai commenti dei sostenitori (di default in --live li mette)")
+    ap.add_argument("--solo-se-post-recente", type=float, default=None, metavar="ORE",
+                    help="esegui solo se l'ultimo post e' piu' giovane di ORE ore (per i giri 'lampo')")
     args = ap.parse_args()
 
     # Fascia notturna: in --live non si pubblica tra le 00:00 e le 06:00 (ora italiana),
@@ -516,6 +518,22 @@ def main():
     print(f"Pagina: {page_name} (id {page_id})")
     print(f"Modalita': {'LIVE - pubblica' if args.live else 'PROVA - solo proposte.csv'}")
     print(f"Modello: {MODEL} | batch {BATCH_SIZE} | token/risposta {TOKEN_PER_RISPOSTA}")
+
+    # Giro 'lampo': procedi solo se c'e' un post abbastanza recente (spinta 'ora d'oro').
+    if args.solo_se_post_recente:
+        from datetime import datetime, timezone
+        recenti = get_posts(token, page_id, 1)
+        ore = 9999.0
+        if recenti:
+            try:
+                dt = datetime.strptime(recenti[0].get("created_time", ""), "%Y-%m-%dT%H:%M:%S%z")
+                ore = (datetime.now(timezone.utc) - dt).total_seconds() / 3600
+            except Exception:
+                ore = 0.0
+        if ore > args.solo_se_post_recente:
+            print(f"Ultimo post di {ore:.1f}h fa (> {args.solo_se_post_recente}h): niente di fresco, salto il giro lampo.")
+            return
+        print(f"Post recente ({ore:.1f}h fa): giro lampo attivo.")
 
     done = _carica_set(DONE_FILE)
     visti = _carica_set(VISTI_FILE)

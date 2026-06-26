@@ -2,9 +2,9 @@ name: auto-commenti-fb
 
 on:
   schedule:
-    # ogni 2 ore SOLO di giorno. Cron in UTC: 04-22 UTC = circa 06:00-24:00 ora italiana.
+    # ogni ORA, solo di giorno. Cron in UTC: 04-22 UTC = circa 06:00-24:00 ora italiana.
     # In piu', il bot stesso salta le ore 00-06 italiane (gestione precisa di ora legale/solare).
-    - cron: "0 4-22/2 * * *"
+    - cron: "0 4-22 * * *"
   workflow_dispatch: {}       # permette anche l'avvio manuale dal sito GitHub
 
 # evita che due esecuzioni si sovrappongano
@@ -38,6 +38,7 @@ jobs:
         run: |
           git config user.name "auto-commenti-bot"
           git config user.email "bot@users.noreply.github.com"
+          git pull --rebase --autostash || true
           git add done.json visti.json likati.json || true
           git commit -m "stato aggiornato" || echo "niente di nuovo da salvare"
           git push || true
