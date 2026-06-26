@@ -117,16 +117,16 @@ def e_banale_positivo(message):
 
 # Template a rotazione per i banali-positivi (variati, per non cadere nell'identico).
 TEMPLATES = [
-    "Grazie mille! Se ti va condividi il post, aiuta a far girare 💪",
-    "Grazie del sostegno! Una condivisione ci da' una grossa mano 🙏",
-    "Grazie! Se condividi il post aiuti a far arrivare il messaggio a piu' gente 💪",
-    "Troppo gentile, grazie! Condividi se sei d'accordo 👊",
-    "Grazie di cuore! Fai girare il post se ti va, serve eccome 🙏",
-    "Grazie del tuo sostegno! Condividi per dare piu' voce a queste idee 💪",
-    "Apprezzo davvero, grazie! Se puoi condividi, ci aiuta tanto 🇮🇹",
-    "Grazie! Conta molto il tuo sostegno. Condividi il post se ti va 💪",
-    "Sei grande, grazie! Una condivisione fa la differenza 🙏",
-    "Grazie mille per il sostegno! Fai girare il post se sei d'accordo 👊",
+    "Grazie del sostegno! Condividi il post e, se non l'hai gia' fatto, metti un like alla pagina 💪",
+    "Grazie! Una condivisione aiuta tanto. E se non segui gia' la pagina, lasciale un mi piace 🙏",
+    "Grazie di cuore! Fai girare il post e, se non l'hai ancora fatto, metti like alla pagina 👊",
+    "Troppo gentile, grazie! Condividi e, se non segui gia' la pagina, un like ci aiuta 💪",
+    "Grazie del tuo sostegno! Condividi il post e seguici con un like alla pagina, se non gia' fatto 🇮🇹",
+    "Apprezzo davvero! Condividi e metti like alla pagina (se non l'hai gia' fatto): ci dai una mano enorme 💪",
+    "Grazie! Fai girare il post e, se non segui gia' la pagina, lasciale un mi piace 🙏",
+    "Sei grande, grazie! Condividi e, se non l'hai ancora fatto, metti like alla pagina 👊",
+    "Grazie mille! Una condivisione + un like alla pagina (se non gia' fatto) valgono oro 💪",
+    "Grazie del supporto! Condividi il post e, se non segui gia' la pagina, mettile un like ❤️",
 ]
 
 
@@ -153,8 +153,11 @@ Ricevi PIU' commenti numerati. Per OGNI commento restituisci una voce con:
    "spam" (pubblicita', link, off-topic, bot)
 - rispondere: true SOLO se categoria = "sostenitore", altrimenti false
 - risposta: se rispondere=true, una risposta BREVE (1-2 frasi), calorosa, nel tono diretto di
-  Gianmarco, che ringrazia e invita a condividere il post. Usa il nome se fornito. Varia sempre le
-  parole, niente frasi identiche. Massimo una emoji (💪 🙏 👊 ❤️ 🇮🇹). Se rispondere=false, stringa vuota.
+  Gianmarco. Deve fare tre cose: (a) ringraziare del sostegno, (b) invitare a CONDIVIDERE il post,
+  (c) invitare a mettere MI PIACE alla Pagina "SE NON L'HA GIA' FATTO" (usa formule naturali tipo
+  "se non segui gia' la pagina mettile un like" / "se non l'hai gia' fatto, like alla pagina"), con un
+  ringraziamento anticipato se lo fa. Usa il nome se fornito. Varia sempre le parole, niente frasi
+  identiche. Massimo una emoji (💪 🙏 👊 ❤️ 🇮🇹). Se rispondere=false, stringa vuota.
 
 Restituisci SOLO il JSON nel formato richiesto, una voce per ogni commento ricevuto."""
 
