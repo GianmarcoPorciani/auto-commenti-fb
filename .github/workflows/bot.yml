@@ -2,7 +2,9 @@ name: auto-commenti-fb
 
 on:
   schedule:
-    - cron: "0 */2 * * *"   # ogni 2 ore (orario UTC; puo' ritardare di qualche minuto)
+    # ogni 2 ore SOLO di giorno. Cron in UTC: 04-22 UTC = circa 06:00-24:00 ora italiana.
+    # In piu', il bot stesso salta le ore 00-06 italiane (gestione precisa di ora legale/solare).
+    - cron: "0 4-22/2 * * *"
   workflow_dispatch: {}       # permette anche l'avvio manuale dal sito GitHub
 
 # evita che due esecuzioni si sovrappongano

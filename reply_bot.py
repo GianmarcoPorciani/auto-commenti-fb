@@ -489,6 +489,20 @@ def main():
                     help="non mettere like ai commenti dei sostenitori (di default in --live li mette)")
     args = ap.parse_args()
 
+    # Fascia notturna: in --live non si pubblica tra le 00:00 e le 06:00 (ora italiana),
+    # cosi' l'attivita' si concentra negli orari in cui la gente e' online. La PROVA gira sempre.
+    if args.live:
+        try:
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            ora_it = datetime.now(ZoneInfo("Europe/Rome")).hour
+        except Exception:
+            from datetime import datetime, timezone, timedelta
+            ora_it = datetime.now(timezone(timedelta(hours=2))).hour  # fallback estate
+        if ora_it < 6:
+            print(f"Ora italiana ~{ora_it}:00 — fascia notturna (00-06): nessuna azione, a domani.")
+            return
+
     token = os.environ.get("FB_PAGE_TOKEN")
     if not token:
         print("Manca FB_PAGE_TOKEN (.env). Vedi README.md")
