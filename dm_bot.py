@@ -134,3 +134,10 @@ def seleziona_candidati(commenti, page_id, dm_inviati, oggi):
             "nome": nome_breve(c.get("autore_nome", "")),
         })
     return out
+
+
+def private_reply(token, comment_id, testo):
+    """Invia un messaggio privato (DM) in risposta a un commento.
+    Endpoint Meta: POST /{comment_id}/private_replies con message=...
+    Usa il graph_post di reply_bot.py (retry/backoff sugli errori temporanei inclusi)."""
+    return graph_post(f"{comment_id}/private_replies", token, {"message": testo})
