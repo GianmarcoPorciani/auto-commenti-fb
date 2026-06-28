@@ -231,23 +231,67 @@ def classifica_tutti(client, items):
 # GRAPH API
 # ---------------------------------------------------------------------------
 
+# Retry automatico sugli errori TEMPORANEI di Facebook (i piu' frequenti: 500 "is_transient").
+# Gli errori permanenti (token scaduto, permessi, id inesistente) NON si ritentano: inutile.
+RETRY_TENTATIVI = 4
+RETRY_ATTESA_BASE = 3   # secondi; cresce esponenziale: 3, 6, 12...
+_HTTP_TEMPORANEI = {429, 500, 502, 503, 504}
+_FB_CODICI_TEMPORANEI = {1, 2, 4, 17, 32, 341, 368, 613, 80001}  # transient + rate limit
+
+
+def _e_temporaneo(status, body):
+    if status in _HTTP_TEMPORANEI:
+        return True
+    err = (body or {}).get("error") or {}
+    if err.get("is_transient"):
+        return True
+    return err.get("code") in _FB_CODICI_TEMPORANEI
+
+
+def _graph(metodo, path, token, params=None, data=None):
+    for tentativo in range(1, RETRY_TENTATIVI + 1):
+        try:
+            if metodo == "GET":
+                p = {"access_token": token}
+                if params:
+                    p.update(params)
+                r = requests.get(f"{GRAPH}/{path}", params=p, timeout=30)
+            else:
+                d = {"access_token": token}
+                if data:
+                    d.update(data)
+                r = requests.post(f"{GRAPH}/{path}", data=d, timeout=30)
+        except requests.RequestException as e:
+            if tentativo >= RETRY_TENTATIVI:
+                raise RuntimeError(f"Graph {metodo} {path} -> errore di rete: {e}")
+            attesa = RETRY_ATTESA_BASE * (2 ** (tentativo - 1))
+            print(f"  [Graph {metodo} {path}] rete instabile (tentativo {tentativo}/{RETRY_TENTATIVI}), riprovo tra {attesa}s...")
+            time.sleep(attesa)
+            continue
+
+        if r.status_code == 200:
+            return r.json()
+
+        try:
+            body = r.json()
+        except Exception:
+            body = {}
+        if tentativo < RETRY_TENTATIVI and _e_temporaneo(r.status_code, body):
+            attesa = RETRY_ATTESA_BASE * (2 ** (tentativo - 1))
+            print(f"  [Graph {metodo} {path}] errore temporaneo {r.status_code} "
+                  f"(tentativo {tentativo}/{RETRY_TENTATIVI}), riprovo tra {attesa}s...")
+            time.sleep(attesa)
+            continue
+        raise RuntimeError(f"Graph {metodo} {path} -> {r.status_code}: {r.text}")
+    raise RuntimeError(f"Graph {metodo} {path}: esauriti i tentativi")
+
+
 def graph_get(path, token, params=None):
-    p = {"access_token": token}
-    if params:
-        p.update(params)
-    r = requests.get(f"{GRAPH}/{path}", params=p, timeout=30)
-    if r.status_code != 200:
-        raise RuntimeError(f"Graph GET {path} -> {r.status_code}: {r.text}")
-    return r.json()
+    return _graph("GET", path, token, params=params)
 
 
 def graph_post(path, token, data):
-    d = {"access_token": token}
-    d.update(data)
-    r = requests.post(f"{GRAPH}/{path}", data=d, timeout=30)
-    if r.status_code != 200:
-        raise RuntimeError(f"Graph POST {path} -> {r.status_code}: {r.text}")
-    return r.json()
+    return _graph("POST", path, token, data=data)
 
 
 def get_page_info(token):
