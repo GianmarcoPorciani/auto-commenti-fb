@@ -7,12 +7,15 @@ Separato da reply_bot.py (bot commenti) di proposito: e' un'azione ad alto risch
 e di fetch di reply_bot.py. NON usa Claude: i testi sono template a rotazione.
 
 Modalita':
-  python dm_bot.py --ultimi-post 5                 # PROVA: scrive dm_proposte.csv, non invia
+  python dm_bot.py --ultimi-post 5                    # PROVA: scrive dm_proposte.csv, non invia
+  python dm_bot.py --commento <COMMENT_ID> --live     # invia a UN commento preciso (test mirato)
   python dm_bot.py --post <URL|ID> --live --test-uno  # invia UN solo DM e si ferma
   python dm_bot.py --ultimi-post 5 --live --max-giorno 20
 
 Vincolo Meta: la Private Reply raggiunge SOLO chi ha commentato, una volta per commento,
 e richiede il permesso pages_messaging (verso il pubblico generico serve Accesso Avanzato).
+Facebook NON espone l'identita' di chi commenta (autore_id/nome vuoti): dedup e cap sono
+quindi per COMMENTO (1 DM per commento), e i messaggi usano la versione senza nome.
 """
 
 import argparse
@@ -112,24 +115,29 @@ def conta_dm_oggi(stato, oggi):
 
 
 def seleziona_candidati(commenti, page_id, dm_inviati, oggi):
-    """Da una lista di commenti (formato get_comments) ricava i destinatari DM:
-    salta vuoti, la Pagina stessa, chi ha gia' un DM oggi; deduplica per autore_id."""
+    """Da una lista di commenti (formato get_comments) ricava i destinatari DM.
+    Facebook NON fornisce l'identita' di chi commenta (autore_id/nome spesso vuoti per
+    privacy), quindi dedup e cap sono per COMMENTO, non per persona: salta i commenti
+    vuoti, quelli della Pagina stessa e quelli a cui abbiamo gia' inviato un DM (Meta
+    consente 1 private reply per commento). 'oggi' non serve qui: un commento riceve un
+    DM una volta sola in assoluto (il tetto giornaliero e' applicato a parte in invia_dm)."""
     visti_giro = set()
     out = []
     for c in commenti:
         autore_id = c.get("autore_id") or ""
+        cid = c["id"]
         msg = (c.get("message") or "").strip()
         if not msg:
             continue
-        if not autore_id or autore_id == page_id:
+        if autore_id == page_id:      # commento della Pagina stessa -> mai
             continue
-        if dm_inviati.get(autore_id) == oggi:
+        if cid in dm_inviati:         # a questo commento abbiamo gia' mandato un DM
             continue
-        if autore_id in visti_giro:
+        if cid in visti_giro:
             continue
-        visti_giro.add(autore_id)
+        visti_giro.add(cid)
         out.append({
-            "comment_id": c["id"],
+            "comment_id": cid,
             "autore_id": autore_id,
             "nome": nome_breve(c.get("autore_nome", "")),
         })
@@ -178,9 +186,9 @@ def raccogli_candidati(token, page_id, post_ids, dm_inviati, oggi):
         commenti = get_comments(token, pid, page_id)
         print(f"  post {pid}: {len(commenti)} commenti")
         for cand in seleziona_candidati(commenti, page_id, dm_inviati, oggi):
-            if cand["autore_id"] in visti_globali:
+            if cand["comment_id"] in visti_globali:
                 continue
-            visti_globali.add(cand["autore_id"])
+            visti_globali.add(cand["comment_id"])
             cand["post_id"] = pid
             tutti.append(cand)
     return tutti
@@ -212,13 +220,12 @@ def invia_dm(token, candidati, dm_inviati, oggi, max_giorno, max_per_post, solo_
         testo = componi_dm(i, cand["nome"])
         try:
             private_reply(token, cand["comment_id"], testo)
-            dm_inviati[cand["autore_id"]] = oggi
+            dm_inviati[cand["comment_id"]] = oggi
             salva_dm_inviati(dm_inviati)
             inviati_oggi += 1
             n += 1
             errori = 0
-            etichetta = cand["nome"] or "(senza nome)"
-            print(f"  [DM] {etichetta}: {testo}")
+            print(f"  [DM] commento {cand['comment_id']}: {testo}")
         except Exception as e:
             errori += 1
             print(f"  [errore DM su {cand['comment_id']}] {e}")
@@ -240,6 +247,8 @@ def main():
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--post", help="ID o URL del post")
     g.add_argument("--ultimi-post", type=int, metavar="N", help="ultimi N post della pagina")
+    g.add_argument("--commento", metavar="COMMENT_ID",
+                   help="invia a UN solo commento specifico (per test mirati)")
     ap.add_argument("--live", action="store_true", help="invia davvero (senza: solo PROVA->CSV)")
     ap.add_argument("--test-uno", action="store_true", help="in --live, invia UN solo DM e stop")
     ap.add_argument("--max-giorno", type=int, default=MAX_GIORNO_DEFAULT,
@@ -261,17 +270,20 @@ def main():
     print(f"Pagina: {page_name} (id {page_id})")
     print(f"Modalita': {'LIVE - invia' if args.live else 'PROVA - solo dm_proposte.csv'}")
 
-    if args.post:
-        post_ids = [estrai_post_id(args.post, page_id)]
-    else:
-        post_ids = [p["id"] for p in get_posts(token, page_id, args.ultimi_post)]
-    print(f"{len(post_ids)} post da scandire")
-
     oggi = oggi_str()
     dm_inviati = carica_dm_inviati()
     print(f"  DM gia' inviati oggi ({oggi}): {conta_dm_oggi(dm_inviati, oggi)}")
 
-    candidati = raccogli_candidati(token, page_id, post_ids, dm_inviati, oggi)
+    if args.commento:
+        candidati = [{"comment_id": args.commento, "autore_id": "", "nome": "", "post_id": ""}]
+        print(f"  target: singolo commento {args.commento}")
+    else:
+        if args.post:
+            post_ids = [estrai_post_id(args.post, page_id)]
+        else:
+            post_ids = [p["id"] for p in get_posts(token, page_id, args.ultimi_post)]
+        print(f"{len(post_ids)} post da scandire")
+        candidati = raccogli_candidati(token, page_id, post_ids, dm_inviati, oggi)
     print(f"  candidati DM (dopo filtri e dedup): {len(candidati)}")
 
     if not args.live:
