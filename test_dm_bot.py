@@ -64,6 +64,36 @@ def test_carica_e_salva_dm_inviati(tmp_path_helper=None):
             os.remove(path)
 
 
+def _commento(cid, autore_id, nome="Tizio", message="bel post"):
+    return {"id": cid, "autore_id": autore_id, "autore_nome": nome,
+            "message": message, "gia_risposto_pagina": False}
+
+
+def test_seleziona_candidati_filtra_e_deduplica():
+    page_id = "PAGE"
+    commenti = [
+        _commento("c1", "u1"),                       # ok
+        _commento("c2", "u1"),                       # stesso autore -> scartato (dedup)
+        _commento("c3", "PAGE"),                     # commento della Pagina -> scartato
+        _commento("c4", "u2", message="   "),        # vuoto -> scartato
+        _commento("c5", "u3"),                       # ok
+        _commento("c6", ""),                         # senza autore_id -> scartato
+    ]
+    dm_inviati = {"u3": "2026-06-28"}                # u3 gia' DM oggi -> scartato
+    cand = dm_bot.seleziona_candidati(commenti, page_id, dm_inviati, "2026-06-28")
+    ids = [c["autore_id"] for c in cand]
+    assert ids == ["u1"]                             # solo u1 sopravvive
+    assert cand[0]["comment_id"] == "c1"
+    assert cand[0]["nome"] == "Tizio"
+
+
+def test_seleziona_candidati_ammette_se_dm_in_altra_data():
+    commenti = [_commento("c1", "u1")]
+    dm_inviati = {"u1": "2026-06-27"}                # ieri -> oggi puo' ricevere
+    cand = dm_bot.seleziona_candidati(commenti, "PAGE", dm_inviati, "2026-06-28")
+    assert len(cand) == 1
+
+
 # --- runner (resta in fondo al file; i test successivi vanno PRIMA di questo blocco) ---
 def _run():
     import sys
