@@ -94,6 +94,28 @@ def test_seleziona_candidati_ammette_se_dm_in_altra_data():
     assert len(cand) == 1
 
 
+def test_private_reply_chiama_endpoint_corretto():
+    chiamate = {}
+
+    def fake_graph_post(path, token, data):
+        chiamate["path"] = path
+        chiamate["token"] = token
+        chiamate["data"] = data
+        return {"id": "mid_1"}
+
+    originale = dm_bot.graph_post
+    dm_bot.graph_post = fake_graph_post
+    try:
+        res = dm_bot.private_reply("TOK", "504760203329428_999", "ciao a tutti")
+    finally:
+        dm_bot.graph_post = originale
+
+    assert chiamate["path"] == "504760203329428_999/private_replies"
+    assert chiamate["token"] == "TOK"
+    assert chiamate["data"] == {"message": "ciao a tutti"}
+    assert res == {"id": "mid_1"}
+
+
 # --- runner (resta in fondo al file; i test successivi vanno PRIMA di questo blocco) ---
 def _run():
     import sys
