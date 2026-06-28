@@ -91,3 +91,21 @@ def componi_dm(contatore, nome):
     if t:
         t = t[0].upper() + t[1:]
     return t
+
+
+def carica_dm_inviati(path=DM_INVIATI_FILE):
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+            return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def salva_dm_inviati(stato, path=DM_INVIATI_FILE):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(stato, f, ensure_ascii=False, indent=0)
+
+
+def conta_dm_oggi(stato, oggi):
+    return sum(1 for data in stato.values() if data == oggi)

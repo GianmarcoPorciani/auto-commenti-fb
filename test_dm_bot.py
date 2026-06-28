@@ -43,6 +43,27 @@ def test_componi_dm_casi_specifici_senza_nome():
     assert dm_bot.componi_dm(9, "").startswith("Contento di averti qui. Se vuoi")
 
 
+def test_conta_dm_oggi_conta_solo_la_data_di_oggi():
+    stato = {"a": "2026-06-28", "b": "2026-06-28", "c": "2026-06-27"}
+    assert dm_bot.conta_dm_oggi(stato, "2026-06-28") == 2
+    assert dm_bot.conta_dm_oggi(stato, "2026-06-27") == 1
+    assert dm_bot.conta_dm_oggi({}, "2026-06-28") == 0
+
+
+def test_carica_e_salva_dm_inviati(tmp_path_helper=None):
+    import os
+    path = "dm_inviati_test_tmp.json"
+    try:
+        dm_bot.salva_dm_inviati({"x": "2026-06-28"}, path)
+        ricaricato = dm_bot.carica_dm_inviati(path)
+        assert ricaricato == {"x": "2026-06-28"}
+        # file mancante -> dict vuoto
+        assert dm_bot.carica_dm_inviati("non_esiste_xyz.json") == {}
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+
+
 # --- runner (resta in fondo al file; i test successivi vanno PRIMA di questo blocco) ---
 def _run():
     import sys
