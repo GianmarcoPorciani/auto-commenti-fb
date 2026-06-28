@@ -4,6 +4,7 @@ _longuser.txt
 
 # File transitori
 proposte.csv
+dm_proposte.csv
 *_log.txt
 __pycache__/
 *.pyc
