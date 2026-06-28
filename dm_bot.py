@@ -56,3 +56,38 @@ def nome_breve(autore_nome):
         return ""
     parti = autore_nome.strip().split()
     return parti[0] if parti else ""
+
+
+# 10 template a rotazione, neutri e community-oriented. Una sola emoji per messaggio;
+# 🇮🇹 distribuito "di tanto in tanto" (template idx 2, 6, 8).
+DM_TEMPLATES = [
+    "Ciao {nome}, ho letto il tuo commento e mi ha fatto piacere davvero. Siamo in tanti a pensarla così, e più siamo più le nostre idee girano. Se non lo fai già, segui la pagina e lasciale un like: ti aspetto di là 💪",
+    "{nome}, grazie per esserci. Questa pagina la portiamo avanti insieme, un commento alla volta. Mettile un like e premi \"Segui\": così non ti perdi niente e diamo più voce a quello in cui crediamo 🙏",
+    "Senti {nome}, gente come te è esattamente il motivo per cui vale la pena continuare. Aiutami a far crescere la community: un like alla pagina, il tasto Segui, e fai girare il messaggio a chi la pensa come noi. Conta parecchio 🇮🇹",
+    "Il tuo sostegno non passa inosservato, {nome}. Qui dentro siamo una squadra: più follower vuol dire più persone raggiunte e più idee che viaggiano. Se ti va, segui la pagina e mettile un like 👊",
+    "{nome}, due secondi: se condividi quello che scrivo, restami vicino. Segui la pagina e lasciale un mi piace. Più siamo, più diventa difficile ignorarci. E a me serve proprio questo.",
+    "Grazie del commento, {nome}. Lo dico sul serio: ogni persona che si unisce rende questa voce più forte. Premi Segui, metti like alla pagina, e se conosci qualcuno che la pensa come noi tiralo dentro. Le idee si diffondono così.",
+    "Ciao {nome}, mi piace quando arrivano commenti come il tuo. Vuol dire che non sono solo. Tienimi d'occhio: segui la pagina e mettile un like, così restiamo in contatto e portiamo avanti insieme le nostre battaglie 🇮🇹",
+    "{nome}, te lo chiedo diretto: seguimi sulla pagina e lasciale un like. Non è una formalità, è quello che ci fa crescere e ci permette di far sentire la nostra di campana. Sei già dei nostri, tanto vale renderlo ufficiale 😉",
+    "Grazie {nome}. Una community vera si costruisce con le persone che ci mettono la faccia nei commenti, come hai fatto tu. Aiutami: like alla pagina, tasto Segui, e condividi quando qualcosa ti convince. Insieme arriviamo lontano 🇮🇹",
+    "Contento di averti qui, {nome}. Se vuoi che queste idee continuino a girare, il modo più semplice è restare connessi: segui la pagina, mettile un like, e ogni tanto fai girare un post. Ci conto su di te 💪",
+]
+
+
+def componi_dm(contatore, nome):
+    """Sceglie un template a rotazione e inserisce il nome. Se il nome manca, rimuove il
+    segnaposto lasciando una frase naturale e pulita."""
+    t = DM_TEMPLATES[contatore % len(DM_TEMPLATES)]
+    if nome:
+        return t.replace("{nome}", nome)
+    # Nome assente: sostituzioni ordinate (le piu' specifiche prima).
+    t = t.replace("Ciao {nome}, ", "Ciao, ")
+    t = t.replace("Senti {nome}, ", "Senti, ")
+    t = t.replace(", {nome}.", ".")   # nome a fine frase
+    t = t.replace(" {nome}.", ".")    # "Grazie {nome}." -> "Grazie."
+    t = t.replace("{nome}, ", "")     # nome a inizio frase
+    t = t.replace("{nome}", "")       # residui
+    t = t.strip()
+    if t:
+        t = t[0].upper() + t[1:]
+    return t
