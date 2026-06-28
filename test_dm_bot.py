@@ -64,34 +64,40 @@ def test_carica_e_salva_dm_inviati(tmp_path_helper=None):
             os.remove(path)
 
 
-def _commento(cid, autore_id, nome="Tizio", message="bel post"):
+def _commento(cid, autore_id="", nome="", message="bel post"):
+    # Nota: per gli utenti reali Facebook NON fornisce autore_id/autore_nome (vuoti).
     return {"id": cid, "autore_id": autore_id, "autore_nome": nome,
             "message": message, "gia_risposto_pagina": False}
 
 
-def test_seleziona_candidati_filtra_e_deduplica():
+def test_seleziona_candidati_filtra_e_deduplica_per_commento():
     page_id = "PAGE"
     commenti = [
-        _commento("c1", "u1"),                       # ok
-        _commento("c2", "u1"),                       # stesso autore -> scartato (dedup)
-        _commento("c3", "PAGE"),                     # commento della Pagina -> scartato
-        _commento("c4", "u2", message="   "),        # vuoto -> scartato
-        _commento("c5", "u3"),                       # ok
-        _commento("c6", ""),                         # senza autore_id -> scartato
+        _commento("c1"),                              # ok (utente, id vuoto)
+        _commento("c1"),                              # stesso commento -> dedup
+        _commento("c3", autore_id="PAGE", nome="Pag"),# commento della Pagina -> scartato
+        _commento("c4", message="   "),               # vuoto -> scartato
+        _commento("c5"),                              # gia' servito (in dm_inviati) -> scartato
+        _commento("c6"),                              # ok
     ]
-    dm_inviati = {"u3": "2026-06-28"}                # u3 gia' DM oggi -> scartato
+    dm_inviati = {"c5": "2026-06-27"}                 # c5 ha gia' ricevuto un DM (qualsiasi data)
     cand = dm_bot.seleziona_candidati(commenti, page_id, dm_inviati, "2026-06-28")
-    ids = [c["autore_id"] for c in cand]
-    assert ids == ["u1"]                             # solo u1 sopravvive
-    assert cand[0]["comment_id"] == "c1"
-    assert cand[0]["nome"] == "Tizio"
+    ids = [c["comment_id"] for c in cand]
+    assert ids == ["c1", "c6"]                        # un solo c1 + c6
+    assert cand[0]["nome"] == ""                      # utente senza nome -> stringa vuota
 
 
-def test_seleziona_candidati_ammette_se_dm_in_altra_data():
-    commenti = [_commento("c1", "u1")]
-    dm_inviati = {"u1": "2026-06-27"}                # ieri -> oggi puo' ricevere
+def test_seleziona_candidati_usa_il_nome_se_presente():
+    commenti = [_commento("c1", autore_id="u1", nome="Mario Rossi")]
+    cand = dm_bot.seleziona_candidati(commenti, "PAGE", {}, "2026-06-28")
+    assert cand[0]["nome"] == "Mario"                 # estratto da autore_nome quando c'e'
+
+
+def test_seleziona_candidati_salta_solo_il_commento_gia_servito():
+    commenti = [_commento("c1"), _commento("c2")]
+    dm_inviati = {"c1": "2026-06-01"}                 # c1 gia' servito, c2 no
     cand = dm_bot.seleziona_candidati(commenti, "PAGE", dm_inviati, "2026-06-28")
-    assert len(cand) == 1
+    assert [c["comment_id"] for c in cand] == ["c2"]
 
 
 def test_private_reply_chiama_endpoint_corretto():
