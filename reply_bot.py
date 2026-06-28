@@ -116,23 +116,48 @@ def e_banale_positivo(message):
     return False
 
 
-# Template a rotazione per i banali-positivi (variati, per non cadere nell'identico).
-TEMPLATES = [
-    "Grazie del sostegno! Condividi il post e, se non l'hai gia' fatto, metti un like alla pagina 💪",
-    "Grazie! Una condivisione aiuta tanto. E se non segui gia' la pagina, lasciale un mi piace 🙏",
-    "Grazie di cuore! Fai girare il post e, se non l'hai ancora fatto, metti like alla pagina 👊",
-    "Troppo gentile, grazie! Condividi e, se non segui gia' la pagina, un like ci aiuta 💪",
-    "Grazie del tuo sostegno! Condividi il post e seguici con un like alla pagina, se non gia' fatto 🇮🇹",
-    "Apprezzo davvero! Condividi e metti like alla pagina (se non l'hai gia' fatto): ci dai una mano enorme 💪",
-    "Grazie! Fai girare il post e, se non segui gia' la pagina, lasciale un mi piace 🙏",
-    "Sei grande, grazie! Condividi e, se non l'hai ancora fatto, metti like alla pagina 👊",
-    "Grazie mille! Una condivisione + un like alla pagina (se non gia' fatto) valgono oro 💪",
-    "Grazie del supporto! Condividi il post e, se non segui gia' la pagina, mettile un like ❤️",
+# Template a rotazione per i banali-positivi. Due versioni: con il nome di chi commenta
+# (quando Facebook lo fornisce) e neutra. Frasi calde e variate, mai identiche di fila.
+TEMPLATES_NOME = [
+    "Grazie {nome}! Se ti va fai girare il post, e se ancora non segui la pagina mettile un like 💪",
+    "{nome}, grazie davvero! Una tua condivisione aiuta tanto, e un like alla pagina se non la segui gia' 🙏",
+    "Grazie di cuore {nome}! Condividi con chi la pensa come noi, e se non l'hai gia' fatto un like alla pagina 👊",
+    "{nome}, sei una forza! Aiutaci a farlo girare, e se ancora non segui la pagina lasciale un mi piace ❤️",
+    "Mi fa piacere {nome}! Condividi se ti va, e un like alla pagina se ancora non lo hai messo 🇮🇹",
+    "Grazie {nome}, conta molto! Fai girare il messaggio e, se non gia' fatto, segui la pagina con un like 💪",
+    "{nome}, grazie del sostegno! Condividilo, e se non segui ancora la pagina un mi piace ci serve 🙏",
+    "Ti ringrazio {nome}! Una condivisione e un like alla pagina (se non l'hai gia' messo) valgono oro 👊",
+]
+TEMPLATES_NEUTRO = [
+    "Grazie! Se ti va fai girare il post, e se ancora non segui la pagina mettile un like 💪",
+    "Grazie davvero! Una condivisione aiuta tanto, e un like alla pagina se non la segui gia' 🙏",
+    "Grazie di cuore! Condividi con chi la pensa come noi, e se non l'hai gia' fatto un like alla pagina 👊",
+    "Sei una forza, grazie! Aiutaci a farlo girare, e se ancora non segui la pagina lasciale un mi piace ❤️",
+    "Mi fa piacere! Condividi se ti va, e un like alla pagina se ancora non lo hai messo 🇮🇹",
+    "Grazie, conta molto! Fai girare il messaggio e, se non gia' fatto, segui la pagina con un like 💪",
+    "Grazie del sostegno! Condividilo, e se non segui ancora la pagina un mi piace ci serve 🙏",
+    "Ti ringrazio! Una condivisione e un like alla pagina (se non l'hai gia' messo) valgono oro 👊",
 ]
 
 
-def scegli_template(contatore):
-    return TEMPLATES[contatore % len(TEMPLATES)]
+def _nome_breve(nome):
+    """Nome di battesimo (prima parola), ripulito, per un saluto personale. '' se non valido."""
+    if not nome:
+        return ""
+    parti = nome.strip().split()
+    primo = parti[0] if parti else ""
+    if not re.match(r"^[A-Za-zÀ-ÿ'’\-]{2,20}$", primo):
+        return ""   # scarta numeri, sigle, caratteri strani
+    if primo.isupper() or primo.islower():
+        primo = primo.capitalize()   # GIUSEPPE/anna -> Giuseppe/Anna; "DeLuca" resta com'e'
+    return primo
+
+
+def scegli_template(contatore, nome=""):
+    n = _nome_breve(nome)
+    if n:
+        return TEMPLATES_NOME[contatore % len(TEMPLATES_NOME)].format(nome=n)
+    return TEMPLATES_NEUTRO[contatore % len(TEMPLATES_NEUTRO)]
 
 
 # ---------------------------------------------------------------------------
@@ -153,12 +178,17 @@ Ricevi PIU' commenti numerati. Per OGNI commento restituisci una voce con:
    "fanno schifo" riferiti agli avversari/al sistema): quelli sono "sostenitore".
    "spam" (pubblicita', link, off-topic, bot)
 - rispondere: true SOLO se categoria = "sostenitore", altrimenti false
-- risposta: se rispondere=true, una risposta BREVE (1-2 frasi), calorosa, nel tono diretto di
-  Gianmarco. Deve fare tre cose: (a) ringraziare del sostegno, (b) invitare a CONDIVIDERE il post,
-  (c) invitare a mettere MI PIACE alla Pagina "SE NON L'HA GIA' FATTO" (usa formule naturali tipo
-  "se non segui gia' la pagina mettile un like" / "se non l'hai gia' fatto, like alla pagina"), con un
-  ringraziamento anticipato se lo fa. Usa il nome se fornito. Varia sempre le parole, niente frasi
-  identiche. Massimo una emoji (💪 🙏 👊 ❤️ 🇮🇹). Se rispondere=false, stringa vuota.
+- risposta: se rispondere=true, una risposta BREVE (1-2 frasi), calorosa e PERSONALE, nel tono
+  diretto di Gianmarco. Regole:
+   * NOME: se il commento riporta un nome, usa il nome di battesimo (solo la prima parola, es.
+     "Grazie Maria!"). Se il nome e' "(nessun nome disponibile)" NON inventarlo e non scrivere mai
+     "sconosciuto": rispondi semplicemente senza nome.
+   * PERSONALIZZA: quando puoi, aggancia un dettaglio concreto del commento, cosi' non sembra una
+     formula preconfezionata.
+   * CHIEDI: invita a CONDIVIDERE il post e a mettere MI PIACE alla Pagina "SE NON LO FA GIA'"
+     (formule naturali tipo "se non segui gia' la pagina mettile un like"), con un grazie anticipato.
+   * VARIA SEMPRE le parole: due risposte non devono mai essere uguali. Massimo una emoji
+     (💪 🙏 👊 ❤️ 🇮🇹). Se rispondere=false, stringa vuota.
 
 Restituisci SOLO il JSON nel formato richiesto, una voce per ogni commento ricevuto."""
 
@@ -192,7 +222,7 @@ def classifica_batch(client, chunk):
     """chunk = lista di dict {cid, autore, message}. Ritorna {cid: {categoria, rispondere, risposta}}."""
     righe = []
     for i, it in enumerate(chunk, 1):
-        nome = it["autore"] or "sconosciuto"
+        nome = (it["autore"] or "").strip() or "(nessun nome disponibile)"
         testo = it["message"].replace("\n", " ")
         righe.append(f'[{i}] Nome: {nome} | Commento: "{testo}"')
     contenuto = "Ecco i commenti da classificare:\n\n" + "\n".join(righe)
@@ -450,7 +480,7 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
             continue
         if e_banale_positivo(msg):
             da_likare.append(cid)
-            risposta = scegli_template(tmpl_counter)
+            risposta = scegli_template(tmpl_counter, c["autore_nome"])
             tmpl_counter += 1
             da_rispondere.append({"cid": cid, "autore": c["autore_nome"], "autore_id": autore_id,
                                   "risposta": risposta, "categoria": "sostenitore", "fonte": "template"})
