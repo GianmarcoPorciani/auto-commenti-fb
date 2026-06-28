@@ -116,6 +116,20 @@ def test_private_reply_chiama_endpoint_corretto():
     assert res == {"id": "mid_1"}
 
 
+def test_e_fascia_notturna():
+    assert dm_bot.e_fascia_notturna(2) is True
+    assert dm_bot.e_fascia_notturna(5) is True
+    assert dm_bot.e_fascia_notturna(6) is False
+    assert dm_bot.e_fascia_notturna(14) is False
+    assert dm_bot.e_fascia_notturna(23) is False
+
+
+def test_oggi_str_formato_iso():
+    s = dm_bot.oggi_str()
+    # formato YYYY-MM-DD
+    assert len(s) == 10 and s[4] == "-" and s[7] == "-"
+
+
 # --- runner (resta in fondo al file; i test successivi vanno PRIMA di questo blocco) ---
 def _run():
     import sys

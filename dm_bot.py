@@ -141,3 +141,148 @@ def private_reply(token, comment_id, testo):
     Endpoint Meta: POST /{comment_id}/private_replies con message=...
     Usa il graph_post di reply_bot.py (retry/backoff sugli errori temporanei inclusi)."""
     return graph_post(f"{comment_id}/private_replies", token, {"message": testo})
+
+
+def e_fascia_notturna(ora_it):
+    """True tra le 00 e le 06 (escluse) ora italiana: di notte non si invia."""
+    return ora_it < 6
+
+
+def oggi_str():
+    """Data odierna 'YYYY-MM-DD' in fuso Europe/Rome (fallback UTC+2)."""
+    try:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Europe/Rome")).strftime("%Y-%m-%d")
+    except Exception:
+        from datetime import datetime, timezone, timedelta
+        return datetime.now(timezone(timedelta(hours=2))).strftime("%Y-%m-%d")
+
+
+def ora_italiana():
+    try:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Europe/Rome")).hour
+    except Exception:
+        from datetime import datetime, timezone, timedelta
+        return datetime.now(timezone(timedelta(hours=2))).hour
+
+
+def raccogli_candidati(token, page_id, post_ids, dm_inviati, oggi):
+    """Scorre i post indicati, raccoglie i commenti e applica seleziona_candidati.
+    Deduplica anche TRA post diversi (una persona = un solo candidato per giro)."""
+    tutti = []
+    visti_globali = set()
+    for pid in post_ids:
+        commenti = get_comments(token, pid, page_id)
+        print(f"  post {pid}: {len(commenti)} commenti")
+        for cand in seleziona_candidati(commenti, page_id, dm_inviati, oggi):
+            if cand["autore_id"] in visti_globali:
+                continue
+            visti_globali.add(cand["autore_id"])
+            cand["post_id"] = pid
+            tutti.append(cand)
+    return tutti
+
+
+def scrivi_prova_csv(candidati):
+    with open(DM_CSV, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f)
+        w.writerow(["post_id", "comment_id", "autore_id", "nome", "dm_proposto"])
+        for i, c in enumerate(candidati):
+            w.writerow([c.get("post_id", ""), c["comment_id"], c["autore_id"],
+                        c["nome"], componi_dm(i, c["nome"])])
+    print(f"  scritte {len(candidati)} proposte in {DM_CSV}")
+
+
+def invia_dm(token, candidati, dm_inviati, oggi, max_giorno, max_per_post, solo_uno=False):
+    """Invia i DM con pause, cap globale giornaliero, kill-switch a 3 errori di fila.
+    Salva lo stato dopo OGNI invio (idempotenza)."""
+    inviati_oggi = conta_dm_oggi(dm_inviati, oggi)
+    n = 0
+    errori = 0
+    for i, cand in enumerate(candidati):
+        if inviati_oggi >= max_giorno:
+            print(f"  Tetto giornaliero {max_giorno} raggiunto: stop.")
+            break
+        if max_per_post and n >= max_per_post:
+            print(f"  Tetto per sessione {max_per_post} raggiunto: stop.")
+            break
+        testo = componi_dm(i, cand["nome"])
+        try:
+            private_reply(token, cand["comment_id"], testo)
+            dm_inviati[cand["autore_id"]] = oggi
+            salva_dm_inviati(dm_inviati)
+            inviati_oggi += 1
+            n += 1
+            errori = 0
+            etichetta = cand["nome"] or "(senza nome)"
+            print(f"  [DM] {etichetta}: {testo}")
+        except Exception as e:
+            errori += 1
+            print(f"  [errore DM su {cand['comment_id']}] {e}")
+            if errori >= 3:
+                print("  STOP: 3 errori di fila (permesso pages_messaging? blocco Meta?).")
+                break
+            continue
+        if solo_uno:
+            print("  --test-uno: inviato 1 DM, mi fermo.")
+            break
+        pausa = random.uniform(PAUSA_MIN, PAUSA_MAX)
+        print(f"    ...pausa {pausa:.0f}s")
+        time.sleep(pausa)
+    return n
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Invia DM (Private Reply) ai commentatori")
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument("--post", help="ID o URL del post")
+    g.add_argument("--ultimi-post", type=int, metavar="N", help="ultimi N post della pagina")
+    ap.add_argument("--live", action="store_true", help="invia davvero (senza: solo PROVA->CSV)")
+    ap.add_argument("--test-uno", action="store_true", help="in --live, invia UN solo DM e stop")
+    ap.add_argument("--max-giorno", type=int, default=MAX_GIORNO_DEFAULT,
+                    help=f"tetto globale giornaliero di DM (default {MAX_GIORNO_DEFAULT})")
+    ap.add_argument("--max", type=int, default=None, metavar="N",
+                    help="tetto di DM per questa sessione")
+    args = ap.parse_args()
+
+    if args.live and e_fascia_notturna(ora_italiana()):
+        print(f"Ora italiana ~{ora_italiana()}:00 — fascia notturna (00-06): nessun invio.")
+        return
+
+    token = os.environ.get("FB_PAGE_TOKEN")
+    if not token:
+        print("Manca FB_PAGE_TOKEN (.env). Vedi README.md")
+        sys.exit(1)
+
+    page_id, page_name = get_page_info(token)
+    print(f"Pagina: {page_name} (id {page_id})")
+    print(f"Modalita': {'LIVE - invia' if args.live else 'PROVA - solo dm_proposte.csv'}")
+
+    if args.post:
+        post_ids = [estrai_post_id(args.post, page_id)]
+    else:
+        post_ids = [p["id"] for p in get_posts(token, page_id, args.ultimi_post)]
+    print(f"{len(post_ids)} post da scandire")
+
+    oggi = oggi_str()
+    dm_inviati = carica_dm_inviati()
+    print(f"  DM gia' inviati oggi ({oggi}): {conta_dm_oggi(dm_inviati, oggi)}")
+
+    candidati = raccogli_candidati(token, page_id, post_ids, dm_inviati, oggi)
+    print(f"  candidati DM (dopo filtri e dedup): {len(candidati)}")
+
+    if not args.live:
+        scrivi_prova_csv(candidati)
+        print(f"\nPROVA completata. Controlla {DM_CSV}. Per inviare: aggiungi --live")
+        return
+
+    n = invia_dm(token, candidati, dm_inviati, oggi, args.max_giorno, args.max,
+                 solo_uno=args.test_uno)
+    print(f"\nDM inviati in questa sessione: {n}")
+
+
+if __name__ == "__main__":
+    main()
