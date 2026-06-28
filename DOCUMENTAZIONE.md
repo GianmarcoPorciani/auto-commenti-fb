@@ -198,3 +198,24 @@ Restano comunque consigli: non alzare troppo la frequenza, e tenere d'occhio che
 8. **Messo in cloud su GitHub Actions**: lavora da solo ogni 2 ore, indipendente dal PC
 
 **Risultato:** un sistema di community management autonomo, economico e sempre attivo per la Pagina.
+
+---
+
+## DM ai commentatori (dm_bot.py)
+
+Invia un messaggio privato (Private Reply) di ringraziamento + invito a seguire/like a chi
+COMMENTA i post. Separato dal bot commenti. Non usa Claude (10 template a rotazione).
+
+Vincoli Meta: raggiunge solo i commentatori (non chi reagisce), una volta per commento,
+richiede il permesso `pages_messaging` (verso il pubblico generico serve Accesso Avanzato).
+Non esiste API per sapere chi segue gia' la Pagina: il testo invita "se non lo fai gia'".
+
+Regole: max 1 DM al giorno a persona (stato in dm_inviati.json), tetto globale --max-giorno
+(default 150), pause 30-70s, nessun invio 00-06 ora italiana, stop a 3 errori di fila.
+
+Uso:
+  python dm_bot.py --ultimi-post 5                 # PROVA -> dm_proposte.csv (non invia)
+  python dm_bot.py --post <URL> --live --test-uno  # invia 1 DM (verifica permesso)
+  python dm_bot.py --ultimi-post 5 --live --max-giorno 20   # giro piccolo
+
+Stato permesso pages_messaging: <DA COMPILARE dopo il Task 7: attivo / serve App Review>.
