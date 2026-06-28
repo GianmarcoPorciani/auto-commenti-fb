@@ -209,13 +209,26 @@ COMMENTA i post. Separato dal bot commenti. Non usa Claude (10 template a rotazi
 Vincoli Meta: raggiunge solo i commentatori (non chi reagisce), una volta per commento,
 richiede il permesso `pages_messaging` (verso il pubblico generico serve Accesso Avanzato).
 Non esiste API per sapere chi segue gia' la Pagina: il testo invita "se non lo fai gia'".
+Facebook NON espone l'identita' di chi commenta (autore_id/nome vuoti): dedup e cap sono
+quindi per COMMENTO (1 DM per commento) e i messaggi usano la versione senza nome.
 
-Regole: max 1 DM al giorno a persona (stato in dm_inviati.json), tetto globale --max-giorno
-(default 150), pause 30-70s, nessun invio 00-06 ora italiana, stop a 3 errori di fila.
+Regole: 1 DM per commento (stato in dm_inviati.json, chiave = comment_id), tetto globale
+--max-giorno (default 150), pause 30-70s, nessun invio 00-06 ora italiana, stop a 3 errori.
 
 Uso:
-  python dm_bot.py --ultimi-post 5                 # PROVA -> dm_proposte.csv (non invia)
-  python dm_bot.py --post <URL> --live --test-uno  # invia 1 DM (verifica permesso)
+  python dm_bot.py --ultimi-post 5                    # PROVA -> dm_proposte.csv (non invia)
+  python dm_bot.py --commento <COMMENT_ID> --live     # invia a un commento preciso (test mirato)
+  python dm_bot.py --post <URL> --live --test-uno     # invia 1 DM (verifica permesso)
   python dm_bot.py --ultimi-post 5 --live --max-giorno 20   # giro piccolo
 
-Stato permesso pages_messaging: <DA COMPILARE dopo il Task 7: attivo / serve App Review>.
+Stato permesso pages_messaging (verificato 2026-06-28 via debug_token): **NON ATTIVO**.
+Il token Pagina (Utente di Sistema, app 1529398511958436) ha business_management,
+pages_manage_engagement/metadata/posts, pages_read_engagement/user_content, pages_show_list,
+read_insights — ma NON pages_messaging. Il primo invio di prova e' fallito con
+400 / code 100 / subcode 33 (object/permissions). Per attivare i DM serve:
+  1. Aggiungere il prodotto/permesso pages_messaging all'app su Meta for Developers.
+  2. Rigenerare il token dell'Utente di Sistema includendo lo scope pages_messaging.
+  3. Per inviare al PUBBLICO (non solo admin/tester) serve l'Accesso Avanzato di
+     pages_messaging tramite App Review di Meta.
+Finche' il punto 3 non e' approvato, le private reply funzionano solo verso persone con
+un ruolo sulla Pagina o tester dell'app.
