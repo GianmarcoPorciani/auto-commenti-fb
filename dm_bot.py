@@ -109,3 +109,28 @@ def salva_dm_inviati(stato, path=DM_INVIATI_FILE):
 
 def conta_dm_oggi(stato, oggi):
     return sum(1 for data in stato.values() if data == oggi)
+
+
+def seleziona_candidati(commenti, page_id, dm_inviati, oggi):
+    """Da una lista di commenti (formato get_comments) ricava i destinatari DM:
+    salta vuoti, la Pagina stessa, chi ha gia' un DM oggi; deduplica per autore_id."""
+    visti_giro = set()
+    out = []
+    for c in commenti:
+        autore_id = c.get("autore_id") or ""
+        msg = (c.get("message") or "").strip()
+        if not msg:
+            continue
+        if not autore_id or autore_id == page_id:
+            continue
+        if dm_inviati.get(autore_id) == oggi:
+            continue
+        if autore_id in visti_giro:
+            continue
+        visti_giro.add(autore_id)
+        out.append({
+            "comment_id": c["id"],
+            "autore_id": autore_id,
+            "nome": nome_breve(c.get("autore_nome", "")),
+        })
+    return out
