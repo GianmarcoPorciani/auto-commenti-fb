@@ -32,11 +32,22 @@ jobs:
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python -u reply_bot.py --ultimi-post 2 --live --max 40 --solo-se-post-recente 3
-      - name: Salva lo stato nel repo
+      - name: Salva lo stato nel repo (unione a prova di conflitto)
         run: |
           git config user.name "auto-commenti-bot"
           git config user.email "bot@users.noreply.github.com"
-          git pull --rebase --autostash || true
-          git add done.json visti.json likati.json coda.json || true
-          git commit -m "stato aggiornato (lampo)" || echo "niente di nuovo da salvare"
-          git push || true
+          STATO="done.json visti.json likati.json coda.json"
+          ok=0
+          for i in 1 2 3 4 5; do
+            git fetch origin main || true
+            python merge_stato.py FETCH_HEAD $STATO || true
+            git reset --soft FETCH_HEAD
+            git add $STATO || true
+            if git diff --cached --quiet; then
+              echo "stato invariato, niente da salvare"; ok=1; break
+            fi
+            git commit -m "stato aggiornato (lampo)" || true
+            if git push; then ok=1; break; fi
+            echo "push rifiutato, ritento ($i)..."; sleep 3
+          done
+          [ "$ok" = "1" ] || echo "stato non salvato dopo 5 tentativi (riprovera' al giro successivo)"
