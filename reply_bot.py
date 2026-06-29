@@ -405,11 +405,19 @@ def like_comment(token, comment_id):
 # ---------------------------------------------------------------------------
 
 def _carica_set(path):
+    if not os.path.exists(path):
+        return set()
     try:
         with open(path, encoding="utf-8") as f:
-            return set(json.load(f))
+            testo = f.read()
     except Exception:
         return set()
+    try:
+        return set(json.loads(testo))
+    except Exception:
+        # File danneggiato (es. marcatori di conflitto git): NON azzerare lo stato,
+        # recupera tutti gli ID commento dal testo grezzo (di fatto l'unione delle versioni).
+        return set(re.findall(r"\d+_\d+", testo))
 
 
 def _salva_set(path, s):
