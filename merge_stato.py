@@ -19,7 +19,7 @@ def _versione_remota(ref, path):
     """Contenuto del file nella revisione remota (stringa vuota se assente)."""
     try:
         r = subprocess.run(["git", "show", f"{ref}:{path}"],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
         return r.stdout if r.returncode == 0 else ""
     except Exception:
         return ""
