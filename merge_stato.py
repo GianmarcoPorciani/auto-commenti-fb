@@ -49,12 +49,17 @@ def main():
     if len(sys.argv) < 3:
         return
     ref = sys.argv[1]
+    # 'done' autorevole (unione locale+remoto): serve per ripulire la coda dei gia' risposti.
+    done_union = _ids(_locale("done.json")) | _ids(_versione_remota(ref, "done.json"))
     for path in sys.argv[2:]:
         loc = _locale(path)
         rem = _versione_remota(ref, path)
         if path.endswith("coda.json"):
-            # unione dei dizionari; in caso di stesso ID vince la versione locale
+            # unione dei dizionari (in caso di stesso ID vince il locale), MA la coda e' "pendenti":
+            # tolgo tutto cio' che risulta gia' risposto (in done), altrimenti l'unione ri-aggiunge
+            # le voci appena drenate e la coda non si svuota mai.
             unito = {**_dict(rem), **_dict(loc)}
+            unito = {k: v for k, v in unito.items() if k not in done_union}
             testo = json.dumps(unito, ensure_ascii=False, indent=0)
         else:
             unito = sorted(_ids(loc) | _ids(rem))
