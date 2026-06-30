@@ -1,7 +1,5 @@
 # Segreti: MAI su GitHub (token e chiavi vanno nei Secrets cifrati del repo)
 .env
-.env.*
-*.bak
 _longuser.txt
 
 # File transitori
