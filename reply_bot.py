@@ -608,6 +608,50 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
     print(f"  Risposte pubblicate su questo post: {n_pub}")
 
 
+def drena_coda(token, coda, done, max_pub=None):
+    """Pubblica le risposte pendenti in coda su QUALSIASI commento, anche su post vecchi
+    (oltre gli ultimi N lavorati). Cosi' i sostenitori in coda vengono risposti comunque."""
+    pendenti = [c for c in list(coda.keys()) if c not in done]
+    if not pendenti:
+        return
+    print(f"\n=== Drenaggio coda: {len(pendenti)} risposte pendenti (qualsiasi post) ===")
+    n_pub = 0
+    errori = 0
+    for cid in pendenti:
+        risposta = (coda.get(cid) or {}).get("risposta", "")
+        if not risposta:
+            coda.pop(cid, None)
+            continue
+        try:
+            post_reply(token, cid, risposta)
+            done.add(cid)
+            _salva_set(DONE_FILE, done)
+            coda.pop(cid, None)
+            _salva_dict(CODA_FILE, coda)
+            n_pub += 1
+            errori = 0
+            print(f"  [PUBBLICATO coda] {risposta[:90]}")
+        except Exception as e:
+            msg = str(e)
+            # commento sparito/non accessibile: togli dalla coda (non e' un blocco di Meta)
+            if any(s in msg for s in ("does not exist", "Unsupported", "100)", "Object with ID")):
+                coda.pop(cid, None)
+                _salva_dict(CODA_FILE, coda)
+                print(f"  [coda] commento non piu' disponibile, rimosso: {cid}")
+                continue
+            errori += 1
+            print(f"  [errore coda {cid}] {msg[:120]}")
+            if errori >= 3:
+                print("  STOP coda: 3 errori di fila (blocco di Meta?). Mi fermo per sicurezza.")
+                break
+            continue
+        if max_pub and n_pub >= max_pub:
+            print(f"  Raggiunto il limite di {max_pub} risposte dalla coda per questa sessione.")
+            break
+        time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
+    print(f"  Risposte pubblicate dalla coda: {n_pub} | ancora in coda: {len(coda)}")
+
+
 # ---------------------------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------------------------
@@ -695,6 +739,9 @@ def main():
             for p in posts:
                 lavora_post(client, token, page_id, p["id"], args.live, done, visti, coda, writer,
                             args.max, args.no_like)
+        # Svuota la coda anche per i commenti su post piu' vecchi (oltre gli ultimi N).
+        if args.live:
+            drena_coda(token, coda, done, max_pub=args.max)
     finally:
         f_csv.close()
 
