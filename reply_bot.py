@@ -170,12 +170,15 @@ Gestisci le risposte ai commenti sotto i suoi post Facebook.
 Ricevi PIU' commenti numerati. Per OGNI commento restituisci una voce con:
 - n: il numero del commento
 - categoria: una tra
-   "sostenitore" (d'accordo, complimenti, indignazione allineata, sostiene la posizione del post)
-   "critico" (attacca, dissente, polemizza, prende in giro)
-   "neutro" (domande pratiche o commenti generici senza schieramento)
-   "volgare" SOLO se contiene parolacce esplicite, insulti pesanti o bestemmie. NON classificare
-   volgare un commento che usa parole forti ma è di SOSTEGNO (es. "traditori", "vergogna", "schifo",
-   "fanno schifo" riferiti agli avversari/al sistema): quelli sono "sostenitore".
+   "sostenitore" (d'accordo, complimenti, indignazione allineata, sostiene la posizione del post).
+     Rientrano QUI anche: i commenti brevi, quelli di sola emoji di rabbia/indignazione verso gli
+     avversari (es. "😡"), e quelli con parole forti o volgari ma RIVOLTE agli avversari/al sistema
+     (es. "traditori", "vergogna", "schifo", "fanno schifo", insulti a personaggi avversari): sono
+     SOSTENITORI, non "volgare". Tieni l'asticella BASSA: in dubbio tra "neutro"/"volgare" e
+     "sostenitore" su un commento ALLINEATO al post, scegli SEMPRE "sostenitore".
+   "critico" (attacca GIANMARCO o la posizione del post, dissente o polemizza CONTRO di noi)
+   "neutro" (domande pratiche o commenti generici davvero senza schieramento)
+   "volgare" SOLO se l'offesa/volgarità è rivolta a NOI o del tutto fuori contesto (mai se è di sostegno)
    "spam" (pubblicita', link, off-topic, bot)
 - rispondere: true SOLO se categoria = "sostenitore", altrimenti false
 - risposta: se rispondere=true, una risposta BREVE (1-2 frasi), calorosa e PERSONALE, nel tono
@@ -187,6 +190,11 @@ Ricevi PIU' commenti numerati. Per OGNI commento restituisci una voce con:
      formula preconfezionata.
    * CHIEDI: invita a CONDIVIDERE il post e a mettere MI PIACE alla Pagina "SE NON LO FA GIA'"
      (formule naturali tipo "se non segui gia' la pagina mettile un like"), con un grazie anticipato.
+   * MAI OFFENSIVA: la risposta dev'essere sempre educata ed elevata. Puoi criticare le idee o le
+     scelte degli avversari, ma NON insultare nessuno e non usare volgarità nella risposta.
+   * SE IL COMMENTO È SOLO UN'OFFESA o solo emoji (senza un vero argomento), rispondi in modo BREVE e
+     STANDARD (un ringraziamento + invito a condividere/seguire), SENZA riprendere né amplificare
+     l'insulto. Se invece ha un contenuto, fai la risposta articolata e personale agganciata ad esso.
    * VARIA SEMPRE le parole: due risposte non devono mai essere uguali. Massimo una emoji
      (💪 🙏 👊 ❤️ 🇮🇹). Se rispondere=false, stringa vuota.
 
@@ -510,10 +518,16 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
         cid = it["cid"]
         r = risultati.get(cid)
         cat = r.get("categoria", "?") if r else "errore"
-        rispondo = bool(r and r.get("rispondere") and cat == "sostenitore")
+        # Un SOSTENITORE va SEMPRE risposto: ignoriamo il flag 'rispondere' di Claude, che a volte
+        # si contraddice (categoria=sostenitore ma rispondere=false) facendo perdere il sostenitore.
+        rispondo = bool(r and cat == "sostenitore")
         risposta = (r.get("risposta") or "").strip() if r else ""
+        if rispondo and not risposta:
+            # Claude ha detto sostenitore ma non ha scritto la risposta: template di riserva.
+            risposta = scegli_template(tmpl_counter, it["autore"])
+            tmpl_counter += 1
         if cat == "sostenitore":
-            da_likare.append(cid)   # like a TUTTI i sostenitori, anche se non rispondiamo
+            da_likare.append(cid)   # like a TUTTI i sostenitori
         csv_writer.writerow([post_id, it["autore"], it["message"][:120], cat,
                              "SI" if rispondo else "no", risposta])
         if rispondo and risposta:
