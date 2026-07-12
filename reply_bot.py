@@ -684,10 +684,22 @@ def main():
                     help="non mettere like ai commenti dei sostenitori (di default in --live li mette)")
     ap.add_argument("--solo-se-post-recente", type=float, default=None, metavar="ORE",
                     help="esegui solo se l'ultimo post e' piu' giovane di ORE ore (per i giri 'lampo')")
+    # Override pause (per i giri "ora d'oro": piu' veloci). Senza questi flag valgono i default anti-ban.
+    ap.add_argument("--pausa-min", type=float, default=None, metavar="S", help="pausa min (s) tra le risposte")
+    ap.add_argument("--pausa-max", type=float, default=None, metavar="S", help="pausa max (s) tra le risposte")
+    ap.add_argument("--like-min", type=float, default=None, metavar="S", help="pausa min (s) tra i like")
+    ap.add_argument("--like-max", type=float, default=None, metavar="S", help="pausa max (s) tra i like")
     args = ap.parse_args()
 
-    # Fascia notturna: in --live non si pubblica tra le 00:00 e le 06:00 (ora italiana),
-    # cosi' l'attivita' si concentra negli orari in cui la gente e' online. La PROVA gira sempre.
+    # Applica gli override delle pause (le funzioni leggono queste globali a runtime).
+    global DELAY_MIN, DELAY_MAX, LIKE_DELAY_MIN, LIKE_DELAY_MAX
+    if args.pausa_min is not None: DELAY_MIN = args.pausa_min
+    if args.pausa_max is not None: DELAY_MAX = args.pausa_max
+    if args.like_min is not None: LIKE_DELAY_MIN = args.like_min
+    if args.like_max is not None: LIKE_DELAY_MAX = args.like_max
+
+    # Fascia notturna: in --live non si pubblica solo nella notte fonda 02:00-06:00 (ora italiana).
+    # Il resto della giornata (06:00-02:00) e' attivo. La PROVA gira sempre.
     if args.live:
         try:
             from datetime import datetime
@@ -696,8 +708,8 @@ def main():
         except Exception:
             from datetime import datetime, timezone, timedelta
             ora_it = datetime.now(timezone(timedelta(hours=2))).hour  # fallback estate
-        if ora_it < 6:
-            print(f"Ora italiana ~{ora_it}:00 — fascia notturna (00-06): nessuna azione, a domani.")
+        if 2 <= ora_it < 6:
+            print(f"Ora italiana ~{ora_it}:00 — notte fonda (02-06): nessuna azione, a dopo.")
             return
 
     token = os.environ.get("FB_PAGE_TOKEN")

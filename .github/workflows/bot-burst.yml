@@ -6,8 +6,9 @@ name: auto-commenti-fb (giro lampo)
 
 on:
   schedule:
-    # :15 e :45 (il giro normale gira a :00 e :30) -> ogni 15 min quando c'e' un post recente
-    - cron: "15,45 4-22 * * *"
+    # :15 e :45 (il giro normale gira a :00 e :30) -> ogni 15 min quando c'e' un post recente.
+    # Cron 24h: e' il codice a fermarsi nella notte fonda 02-06 (fuso Europe/Rome).
+    - cron: "15,45 * * * *"
   workflow_dispatch: {}
 
 # stesso gruppo del giro normale: i due non si sovrappongono mai (niente doppioni)
@@ -28,11 +29,11 @@ jobs:
           python-version: "3.12"
       - name: Installa dipendenze
         run: pip install -r requirements.txt
-      - name: Giro lampo (solo se post < 2h)
+      - name: Giro lampo (solo se post < 2h) - pause piu' strette (ora d'oro)
         env:
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python -u reply_bot.py --ultimi-post 2 --live --max 40 --solo-se-post-recente 2
+        run: python -u reply_bot.py --ultimi-post 2 --live --max 40 --solo-se-post-recente 2 --pausa-min 15 --pausa-max 35 --like-min 2 --like-max 6
       - name: Salva lo stato nel repo (unione a prova di conflitto)
         run: |
           git config user.name "auto-commenti-bot"
