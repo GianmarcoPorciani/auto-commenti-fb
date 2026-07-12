@@ -1,12 +1,13 @@
 name: auto-commenti-fb (giro lampo)
 
-# Giro extra piu' frequente, ma SOLO quando c'e' un post fresco (spinta "ora d'oro").
-# Se non ci sono post recenti, esce subito (costo zero).
+# Giro extra "ora d'oro": ai minuti :15 e :45 di ogni ora diurna. Sommato al giro normale
+# (:00 e :30) porta la cadenza a UN GIRO OGNI 15 MIN nelle prime 2h dopo una pubblicazione.
+# SOLO se c'e' un post fresco (< 2h): altrimenti esce subito (costo zero).
 
 on:
   schedule:
-    # ai minuti :20 e :40 di ogni ora diurna (il giro normale gira al minuto :00)
-    - cron: "20,40 4-22 * * *"
+    # :15 e :45 (il giro normale gira a :00 e :30) -> ogni 15 min quando c'e' un post recente
+    - cron: "15,45 4-22 * * *"
   workflow_dispatch: {}
 
 # stesso gruppo del giro normale: i due non si sovrappongono mai (niente doppioni)
@@ -27,11 +28,11 @@ jobs:
           python-version: "3.12"
       - name: Installa dipendenze
         run: pip install -r requirements.txt
-      - name: Giro lampo (solo se post < 3h)
+      - name: Giro lampo (solo se post < 2h)
         env:
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python -u reply_bot.py --ultimi-post 2 --live --max 40 --solo-se-post-recente 3
+        run: python -u reply_bot.py --ultimi-post 2 --live --max 40 --solo-se-post-recente 2
       - name: Salva lo stato nel repo (unione a prova di conflitto)
         run: |
           git config user.name "auto-commenti-bot"
