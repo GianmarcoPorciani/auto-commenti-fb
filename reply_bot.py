@@ -698,8 +698,8 @@ def main():
     if args.like_min is not None: LIKE_DELAY_MIN = args.like_min
     if args.like_max is not None: LIKE_DELAY_MAX = args.like_max
 
-    # Fascia notturna: in --live non si pubblica solo nella notte fonda 02:00-06:00 (ora italiana).
-    # Il resto della giornata (06:00-02:00) e' attivo. La PROVA gira sempre.
+    # Fascia notturna: in --live non si pubblica tra le 00:00 e le 08:00 (ora italiana).
+    # Attivo dalle 08:00 alle 00:00. La PROVA gira sempre.
     if args.live:
         try:
             from datetime import datetime
@@ -708,8 +708,8 @@ def main():
         except Exception:
             from datetime import datetime, timezone, timedelta
             ora_it = datetime.now(timezone(timedelta(hours=2))).hour  # fallback estate
-        if 2 <= ora_it < 6:
-            print(f"Ora italiana ~{ora_it}:00 — notte fonda (02-06): nessuna azione, a dopo.")
+        if ora_it < 8:
+            print(f"Ora italiana ~{ora_it}:00 — fuori orario (attivo 08:00-00:00): nessuna azione.")
             return
 
     token = os.environ.get("FB_PAGE_TOKEN")

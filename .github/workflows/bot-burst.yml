@@ -7,7 +7,7 @@ name: auto-commenti-fb (giro lampo)
 on:
   schedule:
     # :15 e :45 (il giro normale gira a :00 e :30) -> ogni 15 min quando c'e' un post recente.
-    # Cron 24h: e' il codice a fermarsi nella notte fonda 02-06 (fuso Europe/Rome).
+    # Cron 24h: e' il codice a fermarsi fuori orario (attivo 08:00-00:00, fuso Europe/Rome).
     - cron: "15,45 * * * *"
   workflow_dispatch: {}
 
