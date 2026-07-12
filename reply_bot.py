@@ -62,7 +62,7 @@ MODEL = "claude-haiku-4-5"
 # Budget di token PER RISPOSTA (la qualita' la vedi alzando questo valore).
 TOKEN_PER_RISPOSTA = 200
 # Quanti commenti classificare in una sola chiamata (15-20 e' il compromesso ideale).
-BATCH_SIZE = 18
+BATCH_SIZE = 20
 
 # Pause (secondi) tra una risposta pubblicata e la successiva.
 DELAY_MIN = 25
