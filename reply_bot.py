@@ -73,6 +73,9 @@ VISTI_FILE = "visti.json"    # id dei commenti gia' ANALIZZATI (per non ri-class
 LIKATI_FILE = "likati.json"  # id dei commenti a cui abbiamo gia' messo like
 CODA_FILE = "coda.json"      # sostenitori classificati con risposta pronta, in attesa di pubblicazione
 CSV_FILE = "proposte.csv"
+# Cache CONDIVISA di classificazione: { id_numerico_commento: categoria }. La scrive questo bot
+# (che classifica comunque per rispondere) e la riusa dm_targets.py per i DM, senza ri-classificare.
+CLASSIFICATI_FILE = "classificati.json"
 
 # Like ai commenti sostenitori: azione leggera/basso rischio, pause brevi.
 LIKE_DELAY_MIN = 3
@@ -451,8 +454,15 @@ def _salva_dict(path, d):
 # LAVORAZIONE DI UN POST (2 fasi: classifica, poi pubblica)
 # ---------------------------------------------------------------------------
 
+def _num_commento(cid):
+    """Id numerico del commento (parte dopo l'ultimo '_'): chiave stabile e condivisa tra i bot."""
+    return str(cid).split("_")[-1]
+
+
 def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_writer,
-                max_pub=None, no_like=False):
+                max_pub=None, no_like=False, classificati=None):
+    if classificati is None:
+        classificati = {}
     print(f"\n=== Post {post_id} ===")
     commenti = get_comments(token, post_id, page_id)
     print(f"  {len(commenti)} commenti totali")
@@ -496,6 +506,7 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
             continue
         if e_banale_positivo(msg):
             da_likare.append(cid)
+            classificati[_num_commento(cid)] = "sostenitore"   # cache condivisa (banale = sostenitore)
             risposta = scegli_template(tmpl_counter, c["autore_nome"])
             tmpl_counter += 1
             da_rispondere.append({"cid": cid, "autore": c["autore_nome"], "autore_id": autore_id,
@@ -518,6 +529,8 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
         cid = it["cid"]
         r = risultati.get(cid)
         cat = r.get("categoria", "?") if r else "errore"
+        if r is not None:
+            classificati[_num_commento(cid)] = cat   # cache condivisa (riusata dai DM)
         # Un SOSTENITORE va SEMPRE risposto: ignoriamo il flag 'rispondere' di Claude, che a volte
         # si contraddice (categoria=sostenitore ma rispondere=false) facendo perdere il sostenitore.
         rispondo = bool(r and cat == "sostenitore")
@@ -550,6 +563,7 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
 
     _salva_set(VISTI_FILE, visti)
     _salva_dict(CODA_FILE, coda)
+    _salva_dict(CLASSIFICATI_FILE, classificati)
     print(f"  sostenitori da likare: {len(da_likare)} | a cui risponderei: {len(da_rispondere)} "
           f"({tmpl_counter} template + {len(da_rispondere) - tmpl_counter} generate)")
 
@@ -719,6 +733,7 @@ def main():
     done = _carica_set(DONE_FILE)
     visti = _carica_set(VISTI_FILE)
     coda = _carica_dict(CODA_FILE)
+    classificati = _carica_dict(CLASSIFICATI_FILE)   # cache condivisa con dm_targets.py
     # AUTO-RECOVERY: un sostenitore a cui abbiamo messo like ma non ancora risposto NON deve
     # restare "visto" (altrimenti verrebbe saltato per sempre). Lo togliamo da visti -> ritentato,
     # cosi' viene classificato una volta e finisce in coda per la pubblicazione.
@@ -732,13 +747,13 @@ def main():
         if args.post:
             pid = estrai_post_id(args.post, page_id)
             lavora_post(client, token, page_id, pid, args.live, done, visti, coda, writer,
-                        args.max, args.no_like)
+                        args.max, args.no_like, classificati)
         else:
             posts = get_posts(token, page_id, args.ultimi_post)
             print(f"{len(posts)} post da lavorare")
             for p in posts:
                 lavora_post(client, token, page_id, p["id"], args.live, done, visti, coda, writer,
-                            args.max, args.no_like)
+                            args.max, args.no_like, classificati)
         # Svuota la coda anche per i commenti su post piu' vecchi (oltre gli ultimi N).
         if args.live:
             drena_coda(token, coda, done, max_pub=args.max)
