@@ -2,10 +2,10 @@ name: auto-commenti-fb
 
 on:
   schedule:
-    # ogni 30 MIN (:00 e :30), solo di giorno. Cron in UTC: 04-22 UTC = circa 06:00-24:00 italiane.
-    # In piu', il bot stesso salta le ore 00-06 italiane (gestione precisa di ora legale/solare).
+    # ogni 30 MIN (:00 e :30), tutto il giorno. E' il CODICE (fuso Europe/Rome preciso) a fermarsi
+    # solo nella notte fonda 02:00-06:00 italiane -> attivo 06:00-02:00. Cron 24h per robustezza DST.
     # (il giro "lampo" aggiunge :15 e :45 quando c'e' un post < 2h -> ogni 15 min in ora d'oro)
-    - cron: "0,30 4-22 * * *"
+    - cron: "0,30 * * * *"
   workflow_dispatch: {}       # permette anche l'avvio manuale dal sito GitHub
 
 # evita che due esecuzioni si sovrappongano
