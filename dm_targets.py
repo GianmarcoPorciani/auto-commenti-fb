@@ -103,7 +103,9 @@ def fetch_all_comments(tok, oid):
 
 def main():
     ap = argparse.ArgumentParser(description="Genera dm_targets.json (sostenitori entro 24h)")
-    ap.add_argument("--post", required=True, help="URL o ID del post/reel")
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument("--post", help="URL o ID del post/reel")
+    g.add_argument("--ultimo", action="store_true", help="usa automaticamente l'ULTIMO post pubblicato")
     ap.add_argument("--ore", type=float, default=24.0, help="finestra ore dalla pubblicazione (default 24)")
     ap.add_argument("--out", default=OUT_DEFAULT, help="file di output (default ../fb-invite/dm_targets.json)")
     args = ap.parse_args()
@@ -113,7 +115,22 @@ def main():
         print("Manca FB_PAGE_TOKEN (.env)."); sys.exit(1)
 
     page_id, _ = rb.get_page_info(tok)   # per escludere i commenti della Pagina stessa
-    oid = obj_id_from_arg(args.post)
+
+    # URL del post da inserire nei DM e da far aprire al browser (permalink dall'API).
+    post_url = args.post or ""
+    if args.ultimo:
+        recenti = rb.graph_get(f"{page_id}/posts", tok, {"fields": "id,permalink_url", "limit": 1}).get("data", [])
+        if not recenti:
+            print("Nessun post trovato sulla Pagina."); sys.exit(1)
+        post_url = recenti[0].get("permalink_url") or f"https://www.facebook.com/{recenti[0]['id']}"
+        # oid dal PERMALINK (reel-id per i reel, post-id per i post): supporta created_time/commenti,
+        # a differenza dell'id-status (es. ..._1592560692233745, su cui created_time e' deprecato).
+        oid = obj_id_from_arg(post_url)
+        print(f"Ultimo post: {recenti[0]['id']} -> {post_url} (oggetto {oid})")
+    else:
+        oid = obj_id_from_arg(args.post)
+        if not post_url.startswith("http"):
+            post_url = f"https://www.facebook.com/{page_id}/posts/{oid}"
     print(f"Oggetto: {oid}")
 
     # created_time del post/reel → finestra 24h
@@ -147,7 +164,7 @@ def main():
     print(f"{len(entro)} entro {args.ore}h dalla pubblicazione (esclusi {n_pagina} commenti della Pagina)")
 
     if not entro:
-        _scrivi(args.out, args.post, [])
+        _scrivi(args.out, post_url, [])
         print("Nessun commento nella finestra. Fine.")
         return
 
@@ -184,16 +201,17 @@ def main():
                             "message": (c.get("message") or "")[:120]})
     print(f"{len(targets)} sostenitori → target")
 
-    _scrivi(args.out, args.post, targets)
+    _scrivi(args.out, post_url, targets)
     print(f"Scritto {os.path.abspath(args.out)}")
     for t in targets[:5]:
         print(f"   • {t['comment_id']}  ::  {t['message'][:50]!r}")
 
 
-def _scrivi(out, post, targets):
+def _scrivi(out, post_url, targets):
     with open(out, "w", encoding="utf-8") as f:
         json.dump({
-            "post": post,
+            "post": post_url,        # URL del post: fb-dm.mjs lo apre e lo mette come link nel DM
+            "post_url": post_url,
             "ids": [t["comment_id"] for t in targets],
             "targets": targets,
         }, f, ensure_ascii=False, indent=1)
