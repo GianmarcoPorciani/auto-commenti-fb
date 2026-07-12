@@ -3,7 +3,7 @@ name: auto-commenti-fb
 on:
   schedule:
     # ogni 30 MIN (:00 e :30), tutto il giorno. E' il CODICE (fuso Europe/Rome preciso) a fermarsi
-    # solo nella notte fonda 02:00-06:00 italiane -> attivo 06:00-02:00. Cron 24h per robustezza DST.
+    # fuori orario -> attivo 08:00-00:00 italiane (spento 00:00-08:00). Cron 24h per robustezza DST.
     # (il giro "lampo" aggiunge :15 e :45 quando c'e' un post < 2h -> ogni 15 min in ora d'oro)
     - cron: "0,30 * * * *"
   workflow_dispatch: {}       # permette anche l'avvio manuale dal sito GitHub
