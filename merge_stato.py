@@ -61,6 +61,11 @@ def main():
             unito = {**_dict(rem), **_dict(loc)}
             unito = {k: v for k, v in unito.items() if k not in done_union}
             testo = json.dumps(unito, ensure_ascii=False, indent=0)
+        elif path.endswith("classificati.json"):
+            # cache di classificazione { id_numerico -> categoria }: unione dei dizionari (vince il
+            # locale). Cresce e basta. NB: chiavi senza '_', quindi NON usare la fusione a set di ID.
+            unito = {**_dict(rem), **_dict(loc)}
+            testo = json.dumps(unito, ensure_ascii=False, indent=0)
         else:
             unito = sorted(_ids(loc) | _ids(rem))
             testo = json.dumps(unito, ensure_ascii=False, indent=0)
