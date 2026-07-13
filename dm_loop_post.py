@@ -121,6 +121,10 @@ def main():
 
         # 2) invio DM ai target di questo post (browser). Cap giornaliero + guardia oraria 08-00.
         rc = subprocess.run(f"node fb-dm.mjs --live --max-day={cap}", cwd=FBDIR, shell=True)
+        if rc.returncode == 42:
+            print(f"\n⛔ Sender fermato per BLOCCO Meta (troppi no-composer). Interrompo tutto il giro.", flush=True)
+            print("   Riprova piu' tardi (il blocco rientra in ore/giorni). Riprendi con --da-post=N.", flush=True)
+            break
         if rc.returncode != 0:
             print(f"  [invio interrotto/errore su {pid}] passo al prossimo post", flush=True)
 
