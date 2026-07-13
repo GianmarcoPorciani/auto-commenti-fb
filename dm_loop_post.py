@@ -19,7 +19,9 @@ si fermano da soli. Reel: l'edge /posts potrebbe non elencare i video-reel.
 """
 import os
 import sys
+import time
 import subprocess
+from datetime import datetime
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -28,6 +30,14 @@ import reply_bot as rb
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FBDIR = os.path.abspath(os.path.join(HERE, "..", "fb-invite"))
+
+
+def attendi_se_notte():
+    """Il sender e' attivo 08:00-00:00. Di notte (00:00-08:00) NON avanziamo tra i post
+    (li salteremmo a vuoto): aspettiamo le 08:00, ricontrollando ogni 10 minuti."""
+    while datetime.now().hour < 8:
+        print(f"  [notte {datetime.now():%H:%M}] pausa fino alle 08:00...", flush=True)
+        time.sleep(600)
 
 
 def lista_post(tok, page_id, max_post=None):
@@ -69,6 +79,7 @@ def main():
     for i, p in enumerate(posts, 1):
         if i < da_post:
             continue
+        attendi_se_notte()   # non avanzare di notte: aspetta le 08:00
         pid = p["id"]
         url = p.get("permalink_url") or f"https://www.facebook.com/{pid}"
         print(f"\n########## POST {i}/{len(posts)} — {pid} ##########", flush=True)
