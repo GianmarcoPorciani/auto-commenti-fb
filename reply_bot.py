@@ -575,41 +575,35 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
             print(f"  ...e altri {len(da_rispondere) - 8} (vedi {CSV_FILE})")
         return
 
-    # ---- FASE 2a: like ai sostenitori (azione leggera) ----
-    if not no_like and da_likare:
-        likati = _carica_set(LIKATI_FILE)
-        nuovi = [c for c in da_likare if c not in likati]
-        print(f"  metto like a {len(nuovi)} commenti sostenitori...")
-        n_like = 0
-        for cid in nuovi:
+    # ---- FASE 2a: per ogni sostenitore a cui rispondiamo -> LIKE e poi RISPOSTA, sullo STESSO commento ----
+    likati = _carica_set(LIKATI_FILE)
+    n_pub = 0
+    n_like = 0
+    errori = 0
+    blocked = False
+    for d in da_rispondere:
+        cid = d["cid"]
+        # 1) LIKE del commento (prima)
+        if not no_like and cid not in likati:
             try:
                 like_comment(token, cid)
-                likati.add(cid)
-                _salva_set(LIKATI_FILE, likati)
-                n_like += 1
+                likati.add(cid); _salva_set(LIKATI_FILE, likati); n_like += 1
             except Exception as e:
                 print(f"  [errore like {cid}] {e}")
             time.sleep(random.uniform(LIKE_DELAY_MIN, LIKE_DELAY_MAX))
-        print(f"  like messi: {n_like}")
-
-    # ---- FASE 2b: pubblica le risposte ----
-    n_pub = 0
-    errori = 0
-    for d in da_rispondere:
+        # 2) RISPOSTA allo STESSO commento (poi)
         try:
-            post_reply(token, d["cid"], d["risposta"])
-            done.add(d["cid"])
-            _salva_set(DONE_FILE, done)
-            coda.pop(d["cid"], None)
-            _salva_dict(CODA_FILE, coda)
-            n_pub += 1
-            errori = 0
-            print(f"  [PUBBLICATO] {d['autore']}: {d['risposta']}")
+            post_reply(token, cid, d["risposta"])
+            done.add(cid); _salva_set(DONE_FILE, done)
+            coda.pop(cid, None); _salva_dict(CODA_FILE, coda)
+            n_pub += 1; errori = 0
+            print(f"  [LIKE+RISPOSTA] {d['autore']}: {d['risposta']}")
         except Exception as e:
             errori += 1
-            print(f"  [errore pubblicazione su {d['cid']}] {e}")
+            print(f"  [errore pubblicazione su {cid}] {e}")
             if errori >= 3:
                 print("  STOP: 3 errori di fila (token scaduto o blocco di Meta?). Mi fermo per sicurezza.")
+                blocked = True
                 break
             continue
         if max_pub and n_pub >= max_pub:
@@ -618,8 +612,21 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
         pausa = random.uniform(DELAY_MIN, DELAY_MAX)
         print(f"    ...pausa {pausa:.0f}s")
         time.sleep(pausa)
+    print(f"  Risposte pubblicate: {n_pub}")
 
-    print(f"  Risposte pubblicate su questo post: {n_pub}")
+    # ---- FASE 2b: like ai sostenitori restanti (quelli a cui NON rispondiamo). Saltata se Meta blocca. ----
+    if not no_like and not blocked:
+        restanti = [c for c in da_likare if c not in likati]
+        if restanti:
+            print(f"  metto like ad altri {len(restanti)} commenti sostenitori...")
+            for cid in restanti:
+                try:
+                    like_comment(token, cid)
+                    likati.add(cid); _salva_set(LIKATI_FILE, likati); n_like += 1
+                except Exception as e:
+                    print(f"  [errore like {cid}] {e}")
+                time.sleep(random.uniform(LIKE_DELAY_MIN, LIKE_DELAY_MAX))
+    print(f"  Like totali su questo post: {n_like}")
 
 
 def drena_coda(token, coda, done, max_pub=None):
