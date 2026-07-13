@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""dm_loop_post.py — invia i DM-invito a TUTTI i commentatori, POST PER POST.
+
+Parte dal post piu' recente e va all'indietro finche' ci sono post (nessun limite).
+Per ogni post:
+  1) python dm_targets.py --post <permalink> --tutti   -> scrive ../fb-invite/dm_targets.json
+  2) node fb-dm.mjs --live                              -> invia i DM ai target di quel post
+
+Dedup: fb-dm.mjs tiene dm_inviati.json per (post|persona), quindi mai 2 DM alla stessa
+persona sullo STESSO post. Una persona che commenta su piu' post riceve 1 DM per post.
+
+Uso:
+  python dm_loop_post.py                 # tutti i post
+  python dm_loop_post.py --max-post=5    # solo i 5 post piu' recenti
+  python dm_loop_post.py --da-post=3     # salta i primi 2, riparte dal 3o (ripresa)
+
+NB: rispetta la guardia oraria di fb-dm.mjs (attivo 08:00-00:00). Di notte gli invii
+si fermano da soli. Reel: l'edge /posts potrebbe non elencare i video-reel.
+"""
+import os
+import sys
+import subprocess
+
+from dotenv import load_dotenv
+load_dotenv()
+import requests
+import reply_bot as rb
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+FBDIR = os.path.abspath(os.path.join(HERE, "..", "fb-invite"))
+
+
+def lista_post(tok, page_id, max_post=None):
+    """Tutti i post della Pagina (id + permalink_url), dal piu' recente, paginati."""
+    posts = []
+    data = rb.graph_get(f"{page_id}/posts", tok, {"fields": "id,permalink_url", "limit": 25})
+    while True:
+        for p in data.get("data", []):
+            posts.append(p)
+            if max_post and len(posts) >= max_post:
+                return posts
+        nxt = (data.get("paging", {}) or {}).get("next")
+        if not nxt:
+            break
+        r = requests.get(nxt, timeout=30)
+        if r.status_code != 200:
+            break
+        data = r.json()
+    return posts
+
+
+def main():
+    tok = os.environ.get("FB_PAGE_TOKEN")
+    if not tok:
+        print("Manca FB_PAGE_TOKEN (.env)."); sys.exit(1)
+
+    max_post = None
+    da_post = 1
+    for a in sys.argv[1:]:
+        if a.startswith("--max-post="):
+            max_post = int(a.split("=")[1])
+        elif a.startswith("--da-post="):
+            da_post = max(1, int(a.split("=")[1]))
+
+    page_id, _ = rb.get_page_info(tok)
+    posts = lista_post(tok, page_id, max_post)
+    print(f"=== {len(posts)} post trovati (dal piu' recente). Riparto dal #{da_post}. ===", flush=True)
+
+    for i, p in enumerate(posts, 1):
+        if i < da_post:
+            continue
+        pid = p["id"]
+        url = p.get("permalink_url") or f"https://www.facebook.com/{pid}"
+        print(f"\n########## POST {i}/{len(posts)} — {pid} ##########", flush=True)
+
+        # 1) targeting di QUESTO post (tutti i commentatori sostenitori)
+        rc = subprocess.run([sys.executable, "dm_targets.py", "--post", url, "--tutti"], cwd=HERE)
+        if rc.returncode != 0:
+            print(f"  [targeting fallito su {pid}] passo al prossimo post", flush=True)
+            continue
+
+        # 2) invio DM ai target di questo post (browser). Eredita 08:00-00:00 dal sender.
+        rc = subprocess.run("node fb-dm.mjs --live", cwd=FBDIR, shell=True)
+        if rc.returncode != 0:
+            print(f"  [invio interrotto/errore su {pid}] passo al prossimo post", flush=True)
+
+    print("\n=== FINE: tutti i post processati. ===", flush=True)
+
+
+if __name__ == "__main__":
+    main()
