@@ -85,20 +85,34 @@ def classifica_solo_categoria(client, items, batch=30):
     return out
 
 
-def fetch_all_comments(tok, oid):
-    out = []
-    data = rb.graph_get(f"{oid}/comments", tok,
-                        {"fields": "id,message,created_time,from{id,name}", "limit": 100, "filter": "stream"})
-    while True:
-        out.extend(data.get("data", []))
-        nxt = (data.get("paging", {}) or {}).get("next")
-        if not nxt:
-            break
-        r = requests.get(nxt, timeout=30)
-        if r.status_code != 200:
-            break
-        data = r.json()
-    return out
+def fetch_all_comments(tok, oids):
+    """oids: id singolo o lista di candidati. I post normali vogliono l'id composito
+    PAGEID_POSTID; i reel vogliono il reel-id nudo (sull'id-status /comments e' deprecato).
+    Prova ciascun candidato finche' /comments risponde. Ritorna (commenti, oid_usato)."""
+    if isinstance(oids, str):
+        oids = [oids]
+    last_err = None
+    for oid in oids:
+        if not oid:
+            continue
+        try:
+            data = rb.graph_get(f"{oid}/comments", tok,
+                                {"fields": "id,message,created_time,from{id,name}", "limit": 100, "filter": "stream"})
+        except Exception as e:
+            last_err = e
+            continue
+        out = []
+        while True:
+            out.extend(data.get("data", []))
+            nxt = (data.get("paging", {}) or {}).get("next")
+            if not nxt:
+                break
+            r = requests.get(nxt, timeout=30)
+            if r.status_code != 200:
+                break
+            data = r.json()
+        return out, oid
+    raise RuntimeError(f"Nessun id valido per /comments (provati: {oids}). Ultimo errore: {last_err}")
 
 
 def main():
@@ -118,36 +132,38 @@ def main():
     page_id, _ = rb.get_page_info(tok)   # per escludere i commenti della Pagina stessa
 
     # URL del post da inserire nei DM e da far aprire al browser (permalink dall'API).
+    # Candidati id per /comments: i post normali vogliono l'id composito PAGEID_POSTID;
+    # i reel vogliono il reel-id nudo. Proviamo entrambi (composito prima, poi permalink).
     post_url = args.post or ""
     if args.ultimo:
         recenti = rb.graph_get(f"{page_id}/posts", tok, {"fields": "id,permalink_url", "limit": 1}).get("data", [])
         if not recenti:
             print("Nessun post trovato sulla Pagina."); sys.exit(1)
         post_url = recenti[0].get("permalink_url") or f"https://www.facebook.com/{recenti[0]['id']}"
-        # oid dal PERMALINK (reel-id per i reel, post-id per i post): supporta created_time/commenti,
-        # a differenza dell'id-status (es. ..._1592560692233745, su cui created_time e' deprecato).
-        oid = obj_id_from_arg(post_url)
-        print(f"Ultimo post: {recenti[0]['id']} -> {post_url} (oggetto {oid})")
+        candidati = [recenti[0]["id"], obj_id_from_arg(post_url)]   # composito, poi reel/post-id
+        print(f"Ultimo post: {recenti[0]['id']} -> {post_url}")
     else:
-        oid = obj_id_from_arg(args.post)
+        base = obj_id_from_arg(args.post)
+        candidati = [base, f"{page_id}_{base}"]                     # id nudo, poi composito
         if not post_url.startswith("http"):
-            post_url = f"https://www.facebook.com/{page_id}/posts/{oid}"
-    print(f"Oggetto: {oid}")
+            post_url = f"https://www.facebook.com/{page_id}/posts/{base}"
 
-    # created_time del post/reel → finestra 24h
-    try:
-        meta = rb.graph_get(oid, tok, {"fields": "created_time"})
-        pub = datetime.strptime(meta["created_time"], "%Y-%m-%dT%H:%M:%S%z")
-    except Exception as e:
-        print(f"Impossibile leggere created_time del post: {e}"); sys.exit(1)
-    limite = None if args.tutti else pub + timedelta(hours=args.ore)
-    if limite is None:
-        print(f"Pubblicato: {pub.isoformat()}  →  NESSUN limite di tempo (tutti i commentatori)")
+    comments, oid = fetch_all_comments(tok, candidati)
+    print(f"Oggetto usato: {oid} — {len(comments)} commenti totali dall'API")
+
+    # created_time del post → serve SOLO per la finestra oraria. Con --tutti non serve.
+    pub = None
+    limite = None
+    if args.tutti:
+        print("Modalita' --tutti: nessun filtro temporale (tutti i commentatori).")
     else:
+        try:
+            meta = rb.graph_get(oid, tok, {"fields": "created_time"})
+            pub = datetime.strptime(meta["created_time"], "%Y-%m-%dT%H:%M:%S%z")
+        except Exception as e:
+            print(f"Impossibile leggere created_time del post: {e}"); sys.exit(1)
+        limite = pub + timedelta(hours=args.ore)
         print(f"Pubblicato: {pub.isoformat()}  →  finestra fino a: {limite.isoformat()}")
-
-    comments = fetch_all_comments(tok, oid)
-    print(f"{len(comments)} commenti totali dall'API")
 
     entro = []
     n_pagina = 0
@@ -163,7 +179,7 @@ def main():
             t = datetime.strptime(c["created_time"], "%Y-%m-%dT%H:%M:%S%z")
         except Exception:
             continue
-        if t >= pub and (limite is None or t <= limite):
+        if (pub is None or t >= pub) and (limite is None or t <= limite):
             entro.append(c)
     if limite is None:
         print(f"{len(entro)} commentatori totali (nessun limite di tempo, esclusi {n_pagina} commenti della Pagina)")
