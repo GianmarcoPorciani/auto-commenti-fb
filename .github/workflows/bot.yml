@@ -44,7 +44,10 @@ jobs:
           for i in 1 2 3 4 5; do
             git fetch origin main || true
             python merge_stato.py FETCH_HEAD $STATO || true
-            git reset --soft FETCH_HEAD
+            # MIXED (non --soft): allinea HEAD e index al remoto, cosi' il commit contiene
+            # SOLO i file di stato che aggiungo sotto, senza revertire i sorgenti (.py) che
+            # sono cambiati su main dopo il checkout stale di questo job.
+            git reset FETCH_HEAD
             git add $STATO || true
             if git diff --cached --quiet; then
               echo "stato invariato, niente da salvare"; ok=1; break
