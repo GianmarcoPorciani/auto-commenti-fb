@@ -107,6 +107,7 @@ def main():
     g.add_argument("--post", help="URL o ID del post/reel")
     g.add_argument("--ultimo", action="store_true", help="usa automaticamente l'ULTIMO post pubblicato")
     ap.add_argument("--ore", type=float, default=24.0, help="finestra ore dalla pubblicazione (default 24)")
+    ap.add_argument("--tutti", action="store_true", help="nessun limite di tempo: TUTTI i commentatori (anche oltre le 24h)")
     ap.add_argument("--out", default=OUT_DEFAULT, help="file di output (default ../fb-invite/dm_targets.json)")
     args = ap.parse_args()
 
@@ -139,8 +140,11 @@ def main():
         pub = datetime.strptime(meta["created_time"], "%Y-%m-%dT%H:%M:%S%z")
     except Exception as e:
         print(f"Impossibile leggere created_time del post: {e}"); sys.exit(1)
-    limite = pub + timedelta(hours=args.ore)
-    print(f"Pubblicato: {pub.isoformat()}  →  finestra fino a: {limite.isoformat()}")
+    limite = None if args.tutti else pub + timedelta(hours=args.ore)
+    if limite is None:
+        print(f"Pubblicato: {pub.isoformat()}  →  NESSUN limite di tempo (tutti i commentatori)")
+    else:
+        print(f"Pubblicato: {pub.isoformat()}  →  finestra fino a: {limite.isoformat()}")
 
     comments = fetch_all_comments(tok, oid)
     print(f"{len(comments)} commenti totali dall'API")
@@ -159,9 +163,12 @@ def main():
             t = datetime.strptime(c["created_time"], "%Y-%m-%dT%H:%M:%S%z")
         except Exception:
             continue
-        if pub <= t <= limite:
+        if t >= pub and (limite is None or t <= limite):
             entro.append(c)
-    print(f"{len(entro)} entro {args.ore}h dalla pubblicazione (esclusi {n_pagina} commenti della Pagina)")
+    if limite is None:
+        print(f"{len(entro)} commentatori totali (nessun limite di tempo, esclusi {n_pagina} commenti della Pagina)")
+    else:
+        print(f"{len(entro)} entro {args.ore}h dalla pubblicazione (esclusi {n_pagina} commenti della Pagina)")
 
     if not entro:
         _scrivi(args.out, post_url, [])
