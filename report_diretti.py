@@ -137,14 +137,21 @@ def link_commento(permalink, cid):
 
 def main():
     anno = "2026"
+    # DEFAULT: cache-only, ZERO Claude (i report non devono ripagare le classificazioni: le fa gia'
+    # il bot e le salva in cache). Con --conferma si attiva la conferma AI "diretti a me" (a pagamento).
+    solo_struttura = True
     for a in sys.argv[1:]:
         if a.startswith("--anno="):
             anno = a.split("=")[1]
+        elif a == "--conferma":
+            solo_struttura = False
+        elif a == "--struttura":
+            solo_struttura = True
 
     tok = os.environ.get("FB_PAGE_TOKEN")
     if not tok:
         print("Manca FB_PAGE_TOKEN (.env)."); sys.exit(1)
-    client = anthropic.Anthropic()
+    client = None if solo_struttura else anthropic.Anthropic()
 
     page_id, _ = rb.get_page_info(tok)
     cache = {}
@@ -167,20 +174,21 @@ def main():
             continue
         tot_commenti += len(comments)
 
-        da_classificare = []
-        for c in comments:
-            msg = (c.get("message") or "").strip()
-            if not msg:
-                continue
-            frm = c.get("from") or {}
-            if frm.get("id") == page_id:
-                continue
-            num = _num(c["id"])
-            if num not in cache:
-                da_classificare.append((num, msg))
-        if da_classificare:
-            nuovi = dt.classifica_solo_categoria(client, da_classificare)
-            cache.update(nuovi)
+        if not solo_struttura:
+            da_classificare = []
+            for c in comments:
+                msg = (c.get("message") or "").strip()
+                if not msg:
+                    continue
+                frm = c.get("from") or {}
+                if frm.get("id") == page_id:
+                    continue
+                num = _num(c["id"])
+                if num not in cache:
+                    da_classificare.append((num, msg))
+            if da_classificare:
+                nuovi = dt.classifica_solo_categoria(client, da_classificare)
+                cache.update(nuovi)
 
         for c in comments:
             msg = (c.get("message") or "").strip()
@@ -204,11 +212,15 @@ def main():
             })
         print(f"  [{i}/{len(posts)}] {len(comments)} commenti — candidati (volgare+struttura): {len(candidati)}")
 
-    # CONFERMA CLAUDE: bersaglio = lui/la Pagina?
-    print(f"\nConferma Claude su {len(candidati)} candidati...")
-    idx_items = [(k, c["testo"]) for k, c in enumerate(candidati)]
-    diretti_idx = classifica_diretti(client, idx_items)
-    diretti = [candidati[k] for k in sorted(diretti_idx)]
+    # CONFERMA CLAUDE: bersaglio = lui/la Pagina? (saltata in --struttura, es. quota AI esaurita)
+    if solo_struttura:
+        print(f"\n[--struttura] Nessuna conferma Claude: uso i {len(candidati)} candidati struttura.")
+        diretti = list(candidati)
+    else:
+        print(f"\nConferma Claude su {len(candidati)} candidati...")
+        idx_items = [(k, c["testo"]) for k, c in enumerate(candidati)]
+        diretti_idx = classifica_diretti(client, idx_items)
+        diretti = [candidati[k] for k in sorted(diretti_idx)]
     diretti.sort(key=lambda x: x["data"], reverse=True)
 
     # ---- CSV ----

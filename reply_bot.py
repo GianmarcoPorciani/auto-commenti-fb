@@ -92,6 +92,14 @@ PAROLE_POSITIVE = {
     "giusto", "giusta", "condivido", "concordo", "perfetto", "perfetta", "applausi",
     "daje", "avanti", "bene", "benissimo", "sacrosanto", "sacrosanta", "evviva",
     "ottimi", "grazie", "splendido", "fenomeno", "mitico", "great", "wow",
+    # estensione pre-filtro (sicura: solo positivi inequivocabili) — risparmia chiamate a Claude
+    "bravissimo", "bravissima", "bravissimi", "bravissime", "grandissimo", "grandissima",
+    "grandissimi", "mito", "miti", "campione", "campioni", "fantastico", "fantastica",
+    "fantastici", "meraviglioso", "meravigliosa", "stupendo", "stupenda", "eccellente",
+    "chapeau", "orgoglio", "quoto", "straquoto", "approvo", "condivisibile", "giustissimo",
+    "giustissima", "esattamente", "appunto", "verissimi", "verissime", "sacrosanti",
+    "sacrosante", "ottime", "splendida", "super", "fortissimo", "fortissima", "grazieee",
+    "vai", "daje", "onore", "rispetto",
 }
 # Emoji "positive" (se il commento e' solo emoji di queste -> template).
 EMOJI_POSITIVE = set("💪❤️🔥🇮🇹👏👍🙏😍💙🤝✊❤👌🥰😘")
@@ -101,20 +109,27 @@ EMOJI_AMBIGUE = set("🤮🤬😡💩👎😤")
 _re_parole = re.compile(r"[a-zàèéìòùA-ZÀÈÉÌÒÙ]+")
 
 
+def _norm_parola(p):
+    """Collassa 3+ ripetizioni della stessa lettera: 'bravooo'->'bravo', 'grandeee'->'grande'."""
+    return re.sub(r"(.)\1{2,}", r"\1", p.lower())
+
+
 def e_banale_positivo(message):
-    """True se il commento e' chiaramente di sostegno e cosi' breve da non meritare Claude."""
+    """True se il commento e' chiaramente di sostegno e cosi' breve da non meritare Claude.
+    Pre-filtro AGGRESSIVO ma SICURO: solo direzione positiva (mai marca come banale un possibile
+    insulto). Con 'all(positive)' le negazioni ('non sei bravo') falliscono e vanno a Claude."""
     msg = message.strip()
     if not msg:
         return False
-    parole = [p.lower() for p in _re_parole.findall(msg)]
+    parole = [_norm_parola(p) for p in _re_parole.findall(msg)]
     if not parole:
         # solo emoji / punteggiatura
         chars = set(msg)
         if chars & EMOJI_AMBIGUE:
             return False
         return bool(chars & EMOJI_POSITIVE)
-    # 1-2 parole, tutte chiaramente positive
-    if len(parole) <= 2 and all(p in PAROLE_POSITIVE for p in parole):
+    # fino a 3 parole, TUTTE chiaramente positive
+    if len(parole) <= 3 and all(p in PAROLE_POSITIVE for p in parole):
         return True
     return False
 
