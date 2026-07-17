@@ -73,16 +73,19 @@ def link_commento(permalink, cid):
 def main():
     anno = "2026"
     categorie = {"volgare"}
+    classifica = False   # DEFAULT: cache-only, ZERO Claude. --classifica per classificare i non-cache (a pagamento).
     for a in sys.argv[1:]:
         if a.startswith("--anno="):
             anno = a.split("=")[1]
         elif a.startswith("--categorie="):
             categorie = {c.strip() for c in a.split("=")[1].split(",") if c.strip()}
+        elif a == "--classifica":
+            classifica = True
 
     tok = os.environ.get("FB_PAGE_TOKEN")
     if not tok:
         print("Manca FB_PAGE_TOKEN (.env)."); sys.exit(1)
-    client = anthropic.Anthropic()  # ANTHROPIC_API_KEY da .env
+    client = anthropic.Anthropic() if classifica else None  # niente Claude di default
 
     page_id, _ = rb.get_page_info(tok)
     cache = {}
@@ -123,8 +126,8 @@ def main():
             if num not in cache:
                 da_classificare.append((num, msg))
 
-        # classifica al volo i non-cache (solo in memoria)
-        if da_classificare:
+        # classifica al volo i non-cache SOLO se --classifica (a pagamento); altrimenti cache-only
+        if classifica and da_classificare:
             items = [(num, msg) for (num, msg) in da_classificare]
             nuovi = dt.classifica_solo_categoria(client, items)
             for num, cat in nuovi.items():
