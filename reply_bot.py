@@ -426,6 +426,21 @@ def like_comment(token, comment_id):
     return graph_post(f"{comment_id}/likes", token, {})
 
 
+def pagina_ha_gia_risposto(token, comment_id, page_id):
+    """Ricontrolla LIVE se la Pagina ha GIA' risposto a questo commento. Anti-doppione a runtime:
+    done.json/gia_risposto sono calcolati al fetch, ma tra fetch e pubblicazione (minuti, + run
+    sovrapposte cloud/locale) qualcun altro puo' aver gia' risposto. Questo controllo, fatto SUBITO
+    prima di pubblicare, garantisce UNA sola risposta per commento principale."""
+    try:
+        d = graph_get(str(comment_id), token, {"fields": "comments.limit(50){from}"})
+        for rep in (d.get("comments", {}) or {}).get("data", []):
+            if (rep.get("from") or {}).get("id") == page_id:
+                return True
+    except Exception:
+        pass
+    return False
+
+
 # ---------------------------------------------------------------------------
 # STATO (done.json = pubblicati, visti.json = analizzati)
 # ---------------------------------------------------------------------------
@@ -608,6 +623,12 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
                 print(f"  [errore like {cid}] {e}")
             time.sleep(random.uniform(LIKE_DELAY_MIN, LIKE_DELAY_MAX))
         # 2) RISPOSTA allo STESSO commento (poi) -> like+commento sempre insieme
+        # ANTI-DOPPIONE: ricontrolla LIVE che la Pagina non abbia gia' risposto (run sovrapposte/lag).
+        if pagina_ha_gia_risposto(token, cid, page_id):
+            done.add(cid); _salva_set(DONE_FILE, done)
+            coda.pop(cid, None); _salva_dict(CODA_FILE, coda)
+            print(f"  [gia' risposto -> salto, niente doppione] {cid}")
+            continue
         try:
             post_reply(token, cid, d["risposta"])
             done.add(cid); _salva_set(DONE_FILE, done)
@@ -628,7 +649,7 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
     print(f"  Fatto su questo post: {n_pub} like+risposta.")
 
 
-def drena_coda(token, coda, done, max_pub=None):
+def drena_coda(token, coda, done, page_id, max_pub=None):
     """Pubblica le risposte pendenti in coda su QUALSIASI commento, anche su post vecchi
     (oltre gli ultimi N lavorati). Cosi' i sostenitori in coda vengono risposti comunque."""
     pendenti = [c for c in list(coda.keys()) if c not in done]
@@ -641,6 +662,12 @@ def drena_coda(token, coda, done, max_pub=None):
         risposta = (coda.get(cid) or {}).get("risposta", "")
         if not risposta:
             coda.pop(cid, None)
+            continue
+        # ANTI-DOPPIONE: salta se la Pagina ha gia' risposto a questo commento.
+        if pagina_ha_gia_risposto(token, cid, page_id):
+            done.add(cid); _salva_set(DONE_FILE, done)
+            coda.pop(cid, None); _salva_dict(CODA_FILE, coda)
+            print(f"  [coda: gia' risposto, salto] {cid}")
             continue
         try:
             post_reply(token, cid, risposta)
@@ -772,7 +799,7 @@ def main():
                             args.max, args.no_like, classificati)
         # Svuota la coda anche per i commenti su post piu' vecchi (oltre gli ultimi N).
         if args.live:
-            drena_coda(token, coda, done, max_pub=args.max)
+            drena_coda(token, coda, done, page_id, max_pub=args.max)
     finally:
         f_csv.close()
 
