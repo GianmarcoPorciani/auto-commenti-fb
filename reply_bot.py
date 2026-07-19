@@ -590,12 +590,13 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
             print(f"  ...e altri {len(da_rispondere) - 8} (vedi {CSV_FILE})")
         return
 
-    # ---- FASE 2a: per ogni sostenitore a cui rispondiamo -> LIKE e poi RISPOSTA, sullo STESSO commento ----
+    # ---- FASE 2: per OGNI sostenitore -> LIKE e poi RISPOSTA sullo STESSO commento, uno alla volta ----
+    # Nessun tetto (li processa tutti) e nessun like "sciolto": like e commento sono sempre accoppiati,
+    # prima di passare al commento successivo. Pause invariate per intervallare like e risposte.
     likati = _carica_set(LIKATI_FILE)
     n_pub = 0
     n_like = 0
     errori = 0
-    blocked = False
     for d in da_rispondere:
         cid = d["cid"]
         # 1) LIKE del commento (prima)
@@ -606,7 +607,7 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
             except Exception as e:
                 print(f"  [errore like {cid}] {e}")
             time.sleep(random.uniform(LIKE_DELAY_MIN, LIKE_DELAY_MAX))
-        # 2) RISPOSTA allo STESSO commento (poi)
+        # 2) RISPOSTA allo STESSO commento (poi) -> like+commento sempre insieme
         try:
             post_reply(token, cid, d["risposta"])
             done.add(cid); _salva_set(DONE_FILE, done)
@@ -618,30 +619,13 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
             print(f"  [errore pubblicazione su {cid}] {e}")
             if errori >= 3:
                 print("  STOP: 3 errori di fila (token scaduto o blocco di Meta?). Mi fermo per sicurezza.")
-                blocked = True
                 break
             continue
-        if max_pub and n_pub >= max_pub:
-            print(f"  Raggiunto il limite di {max_pub} risposte per questa sessione.")
-            break
+        # niente tetto: si prosegue con TUTTI i sostenitori. Pausa tra un commento e il successivo.
         pausa = random.uniform(DELAY_MIN, DELAY_MAX)
         print(f"    ...pausa {pausa:.0f}s")
         time.sleep(pausa)
-    print(f"  Risposte pubblicate: {n_pub}")
-
-    # ---- FASE 2b: like ai sostenitori restanti (quelli a cui NON rispondiamo). Saltata se Meta blocca. ----
-    if not no_like and not blocked:
-        restanti = [c for c in da_likare if c not in likati]
-        if restanti:
-            print(f"  metto like ad altri {len(restanti)} commenti sostenitori...")
-            for cid in restanti:
-                try:
-                    like_comment(token, cid)
-                    likati.add(cid); _salva_set(LIKATI_FILE, likati); n_like += 1
-                except Exception as e:
-                    print(f"  [errore like {cid}] {e}")
-                time.sleep(random.uniform(LIKE_DELAY_MIN, LIKE_DELAY_MAX))
-    print(f"  Like totali su questo post: {n_like}")
+    print(f"  Fatto su questo post: {n_pub} like+risposta.")
 
 
 def drena_coda(token, coda, done, max_pub=None):
@@ -681,9 +665,7 @@ def drena_coda(token, coda, done, max_pub=None):
                 print("  STOP coda: 3 errori di fila (blocco di Meta?). Mi fermo per sicurezza.")
                 break
             continue
-        if max_pub and n_pub >= max_pub:
-            print(f"  Raggiunto il limite di {max_pub} risposte dalla coda per questa sessione.")
-            break
+        # niente tetto: svuota tutta la coda. Pausa tra una risposta e l'altra.
         time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
     print(f"  Risposte pubblicate dalla coda: {n_pub} | ancora in coda: {len(coda)}")
 
