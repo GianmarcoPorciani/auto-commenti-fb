@@ -88,8 +88,11 @@ def main():
     tot_da_eliminare = 0
     tot_eliminate = 0
     tot_errori = 0
+    rate_limited = False
 
     for i, p in enumerate(posts, 1):
+        if rate_limited:
+            break
         oid = p["id"]
         ptxt = (p.get("message") or "(media)")[:35].replace("\n", " ")
         comments = _all_top_comments(tok, oid)
@@ -114,11 +117,19 @@ def main():
                             tot_eliminate += 1
                         else:
                             tot_errori += 1
-                            print(f"    [errore delete {rid}] {resp.status_code}: {resp.text[:80]}")
+                            txt = resp.text[:120]
+                            # Limite chiamate app di Facebook: inutile insistere, FERMATI (rientra in ~1h).
+                            if "request limit reached" in txt or '"code":4' in txt or '(#4)' in txt:
+                                print(f"    STOP: limite chiamate app di Facebook (#4). Riprova tra ~1 ora.")
+                                rate_limited = True
+                                break
+                            print(f"    [errore delete {rid}] {resp.status_code}: {txt[:80]}")
                     except Exception as e:
                         tot_errori += 1
                         print(f"    [errore delete {rid}] {str(e)[:60]}")
-                    time.sleep(0.6)
+                    time.sleep(1.5)
+            if rate_limited:
+                break
         print(f"  [{i}/{len(posts)}] {ptxt!r}: {len(comments)} commenti, {doppi_post} con risposte doppie")
 
     print(f"\n=== RISULTATO ===")
