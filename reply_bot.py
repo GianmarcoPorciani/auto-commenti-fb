@@ -490,7 +490,9 @@ def _num_commento(cid):
 
 
 def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_writer,
-                max_pub=None, no_like=False, classificati=None):
+                max_pub=None, no_like=False, classificati=None, interrompi_se_nuovo=None):
+    """Ritorna True se e' stato INTERROTTO perche' e' comparso un post nuovo (per dargli priorita').
+    interrompi_se_nuovo: callable che ritorna True se c'e' un post piu' fresco da servire subito."""
     if classificati is None:
         classificati = {}
     print(f"\n=== Post {post_id} ===")
@@ -612,8 +614,21 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
     n_pub = 0
     n_like = 0
     errori = 0
+    interrotto = False
+    da_check = 0   # ogni CHECK_NUOVO_POST risposte ricontrolla se e' uscito un post piu' fresco
+    CHECK_NUOVO_POST = 12
     for d in da_rispondere:
         cid = d["cid"]
+        # Priorita' ai post nuovi: se durante un post (magari virale e lunghissimo) pubblichi qualcosa,
+        # interrompo qui e vado sul fresco. Solo un check leggero (GET), non tocca le risposte;
+        # i progressi sono gia' salvati a ogni risposta, quindi riprendero' questo post dopo.
+        da_check += 1
+        if interrompi_se_nuovo and da_check >= CHECK_NUOVO_POST:
+            da_check = 0
+            if interrompi_se_nuovo():
+                print("  >> Post NUOVO rilevato: interrompo questo post e do priorita' al fresco (riprendero' dopo).")
+                interrotto = True
+                break
         # 1) LIKE del commento (prima)
         if not no_like and cid not in likati:
             try:
@@ -647,6 +662,7 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
         print(f"    ...pausa {pausa:.0f}s")
         time.sleep(pausa)
     print(f"  Fatto su questo post: {n_pub} like+risposta.")
+    return interrotto
 
 
 def drena_coda(token, coda, done, page_id, max_pub=None):
@@ -792,11 +808,37 @@ def main():
             lavora_post(client, token, page_id, pid, args.live, done, visti, coda, writer,
                         args.max, args.no_like, classificati)
         else:
-            posts = get_posts(token, page_id, args.ultimi_post)
-            print(f"{len(posts)} post da lavorare")
-            for p in posts:
-                lavora_post(client, token, page_id, p["id"], args.live, done, visti, coda, writer,
-                            args.max, args.no_like, classificati)
+            # Loop con PRIORITA' AI POST NUOVI: ad ogni giro ri-leggo la lista (dal piu' recente),
+            # prendo il primo non ancora fatto in questa run. Se pubblichi un post mentre lavoro,
+            # lo becco qui (ed eventualmente interrompo il post in corso, vedi interrompi_se_nuovo).
+            processed = set()
+            n_giro = 0
+            while True:
+                posts = get_posts(token, page_id, args.ultimi_post)
+                if not posts:
+                    break
+                p = next((x for x in posts if x["id"] not in processed), None)
+                if p is None:
+                    break
+                n_giro += 1
+                if n_giro == 1:
+                    print(f"{len(posts)} post da lavorare (priorita' ai nuovi)")
+                pid_corrente = p["id"]
+
+                def c_nuovo():
+                    """True se e' comparso un post PIU' recente di quello in corso e non ancora fatto."""
+                    try:
+                        top = get_posts(token, page_id, 1)
+                    except Exception:
+                        return False
+                    return bool(top) and top[0]["id"] != pid_corrente and top[0]["id"] not in processed \
+                        and top[0].get("created_time", "") > p.get("created_time", "")
+
+                interrotto = lavora_post(client, token, page_id, pid_corrente, args.live, done, visti,
+                                         coda, writer, args.max, args.no_like, classificati,
+                                         interrompi_se_nuovo=c_nuovo if args.live else None)
+                if not interrotto:
+                    processed.add(pid_corrente)   # se interrotto NON lo segno: lo riprendo dopo il fresco
         # Svuota la coda anche per i commenti su post piu' vecchi (oltre gli ultimi N).
         if args.live:
             drena_coda(token, coda, done, page_id, max_pub=args.max)
