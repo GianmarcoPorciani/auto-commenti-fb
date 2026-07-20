@@ -81,6 +81,12 @@ CLASSIFICATI_FILE = "classificati.json"
 LIKE_DELAY_MIN = 3
 LIKE_DELAY_MAX = 9
 
+# Sorveglianza post nuovi/caldi
+SEC_SORV_CHECK = 300        # ogni 5 min: check "e' uscito un post nuovo?" e ritmo di risorveglianza
+ORE_SORVEGLIANZA = 3.0      # un post e' "caldo" (da sorvegliare in modo importante) per le prime N ore
+MAX_RUN_SEC = 3300          # una run non resta viva oltre ~55 min (poi il cron la riavvia): evita
+                            # il limite 6h di GitHub Actions e l'accumulo della coda cron
+
 # ---------------------------------------------------------------------------
 # PRE-FILTRO A COSTO ZERO (niente Claude per i commenti banali-positivi)
 # ---------------------------------------------------------------------------
@@ -615,18 +621,16 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
     n_like = 0
     errori = 0
     interrotto = False
-    da_check = 0   # ogni CHECK_NUOVO_POST risposte ricontrolla se e' uscito un post piu' fresco
-    CHECK_NUOVO_POST = 12
+    ultimo_check = time.time()   # check A TEMPO: ogni SEC_SORV_CHECK secondi (5 min)
     for d in da_rispondere:
         cid = d["cid"]
-        # Priorita' ai post nuovi: se durante un post (magari virale e lunghissimo) pubblichi qualcosa,
-        # interrompo qui e vado sul fresco. Solo un check leggero (GET), non tocca le risposte;
-        # i progressi sono gia' salvati a ogni risposta, quindi riprendero' questo post dopo.
-        da_check += 1
-        if interrompi_se_nuovo and da_check >= CHECK_NUOVO_POST:
-            da_check = 0
+        # Priorita' ai post nuovi/caldi: ogni 5 min un check LEGGERO (GET, non Claude, non tocca le
+        # risposte). Se e' uscito un post piu' fresco -o e' ora di risorvegliare il post caldo-
+        # interrompo qui e ci vado. I progressi sono salvati a ogni risposta -> riprendero' dopo.
+        if interrompi_se_nuovo and time.time() - ultimo_check >= SEC_SORV_CHECK:
+            ultimo_check = time.time()
             if interrompi_se_nuovo():
-                print("  >> Post NUOVO rilevato: interrompo questo post e do priorita' al fresco (riprendero' dopo).")
+                print("  >> Priorita' post fresco/caldo: interrompo questo post (riprendero' dopo).")
                 interrotto = True
                 break
         # 1) LIKE del commento (prima)
@@ -811,34 +815,76 @@ def main():
             # Loop con PRIORITA' AI POST NUOVI: ad ogni giro ri-leggo la lista (dal piu' recente),
             # prendo il primo non ancora fatto in questa run. Se pubblichi un post mentre lavoro,
             # lo becco qui (ed eventualmente interrompo il post in corso, vedi interrompi_se_nuovo).
-            processed = set()
+            processed = set()          # post di backlog gia' completati in QUESTA run (una volta basta)
+            ultimo_visita = {}         # post_id -> time.time() dell'ultima lavorazione (per la sorveglianza)
+            run_start = time.time()
             n_giro = 0
+
+            def eta_ore(post):
+                from datetime import datetime as _dt
+                try:
+                    t = _dt.strptime(post.get("created_time", ""), "%Y-%m-%dT%H:%M:%S%z")
+                    return (_dt.now(t.tzinfo) - t).total_seconds() / 3600.0
+                except Exception:
+                    return 999.0
+
             while True:
+                if time.time() - run_start >= MAX_RUN_SEC:
+                    print(f"  (raggiunto il limite durata run {MAX_RUN_SEC//60} min: chiudo, il cron riprende)")
+                    break
                 posts = get_posts(token, page_id, args.ultimi_post)
                 if not posts:
                     break
-                p = next((x for x in posts if x["id"] not in processed), None)
+                # Post CALDO = il piu' recente se pubblicato da meno di ORE_SORVEGLIANZA (prime ore).
+                caldo = posts[0] if eta_ore(posts[0]) < ORE_SORVEGLIANZA else None
+                now = time.time()
+                caldo_id = caldo["id"] if caldo else None
+                # PRIORITA': se c'e' un post caldo e non lo lavoro da >= 5 min -> risorveglialo subito.
+                if caldo and now - ultimo_visita.get(caldo_id, 0) >= SEC_SORV_CHECK:
+                    p = caldo
+                else:
+                    # backlog: primo post non ancora fatto, ESCLUSO il caldo (lo gestisce la priorita').
+                    p = next((x for x in posts if x["id"] not in processed and x["id"] != caldo_id), None)
                 if p is None:
+                    # Niente backlog. Se c'e' un post caldo e siamo in live, resto vivo e lo risorveglio
+                    # ogni 5 min (prime ore); altrimenti la run e' conclusa.
+                    if caldo and args.live and time.time() - run_start < MAX_RUN_SEC:
+                        attesa = SEC_SORV_CHECK - (time.time() - ultimo_visita.get(caldo_id, 0))
+                        time.sleep(min(max(attesa, 5), 60))
+                        continue
                     break
                 n_giro += 1
                 if n_giro == 1:
-                    print(f"{len(posts)} post da lavorare (priorita' ai nuovi)")
+                    print(f"{len(posts)} post (priorita' ai nuovi; sorveglianza post <{ORE_SORVEGLIANZA:g}h ogni {SEC_SORV_CHECK//60}min)")
                 pid_corrente = p["id"]
 
-                def c_nuovo():
-                    """True se e' comparso un post PIU' recente di quello in corso e non ancora fatto."""
+                def interrompi():
+                    """Interrompe il post in corso se: (a) e' comparso un post PIU' fresco, oppure
+                    (b) e' ora di risorvegliare il post CALDO (che non e' quello in corso)."""
                     try:
                         top = get_posts(token, page_id, 1)
                     except Exception:
                         return False
-                    return bool(top) and top[0]["id"] != pid_corrente and top[0]["id"] not in processed \
-                        and top[0].get("created_time", "") > p.get("created_time", "")
+                    if not top:
+                        return False
+                    t0 = top[0]
+                    if t0["id"] == pid_corrente:
+                        return False
+                    # (a) post piu' recente di quello in corso, mai fatto
+                    if t0.get("created_time", "") > p.get("created_time", "") and t0["id"] not in processed:
+                        return True
+                    # (b) post caldo da risorvegliare (>= 5 min dall'ultima volta)
+                    if eta_ore(t0) < ORE_SORVEGLIANZA and time.time() - ultimo_visita.get(t0["id"], 0) >= SEC_SORV_CHECK:
+                        return True
+                    return False
 
                 interrotto = lavora_post(client, token, page_id, pid_corrente, args.live, done, visti,
                                          coda, writer, args.max, args.no_like, classificati,
-                                         interrompi_se_nuovo=c_nuovo if args.live else None)
-                if not interrotto:
-                    processed.add(pid_corrente)   # se interrotto NON lo segno: lo riprendo dopo il fresco
+                                         interrompi_se_nuovo=interrompi if args.live else None)
+                ultimo_visita[pid_corrente] = time.time()
+                # Un post CALDO non lo "chiudo" mai (va risorvegliato); un post di backlog si', se finito.
+                if not interrotto and not (caldo and pid_corrente == caldo["id"]):
+                    processed.add(pid_corrente)
         # Svuota la coda anche per i commenti su post piu' vecchi (oltre gli ultimi N).
         if args.live:
             drena_coda(token, coda, done, page_id, max_pub=args.max)
