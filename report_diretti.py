@@ -205,12 +205,27 @@ def main():
             if par is not None and (par.get("from") or {}).get("id") != page_id:
                 continue  # risposta a un altro utente -> rissa tra utenti, scarto
             candidati.append({
+                "cid": num,   # id numerico commento: identificatore stabile per marca/elimina
                 "data": (c.get("created_time") or "")[:19].replace("T", " "),
                 "testo": msg,
                 "post_url": permalink,
                 "link": link_commento(permalink, c["id"]),
             })
         print(f"  [{i}/{len(posts)}] {len(comments)} commenti — candidati (volgare+struttura): {len(candidati)}")
+
+    # ---- stato "gestiti" (marca/elimina) PERSISTENTE: letto dal file, ri-embeddato nell'HTML ----
+    # Gli ELIMINATI vengono esclusi A MONTE: niente conferma Claude (risparmio) e non ricompaiono.
+    gestiti_path = os.path.join(DESKTOP, "report_gestiti.json")
+    try:
+        gestiti = json.load(open(gestiti_path, encoding="utf-8"))
+        if not isinstance(gestiti, dict):
+            gestiti = {}
+    except Exception:
+        gestiti = {}
+    n_prima = len(candidati)
+    candidati = [c for c in candidati if gestiti.get(c["cid"]) != "eliminato"]
+    if n_prima != len(candidati):
+        print(f"  Esclusi {n_prima - len(candidati)} commenti gia' ELIMINATI (report_gestiti.json).")
 
     # CONFERMA CLAUDE: bersaglio = lui/la Pagina? (saltata in --struttura, es. quota AI esaurita)
     if solo_struttura:
@@ -223,46 +238,150 @@ def main():
         diretti = [candidati[k] for k in sorted(diretti_idx)]
     diretti.sort(key=lambda x: x["data"], reverse=True)
 
-    # ---- CSV ----
+    # ---- CSV (con colonna Stato) ----
     csv_path = os.path.join(DESKTOP, "report_diretti_porciani.csv")
     with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f, delimiter=";")
-        w.writerow(["Data", "Commento offensivo (diretto a te)", "Post", "Link al commento (mostra autore)"])
+        w.writerow(["Stato", "Data", "Commento offensivo (diretto a te)", "Post", "Link al commento (mostra autore)"])
         for o in diretti:
-            w.writerow([o["data"], o["testo"], o["post_url"], o["link"]])
+            w.writerow([gestiti.get(o["cid"], "da gestire"), o["data"], o["testo"], o["post_url"], o["link"]])
 
-    # ---- HTML ----
+    # ---- HTML interattivo (marca / elimina, salvataggio, filtri) ----
     righe_html = []
     for n, o in enumerate(diretti, 1):
         righe_html.append(
-            f"<tr><td class='n'>{n}</td><td class='data'>{html.escape(o['data'])}</td>"
-            f"<td class='testo'>{html.escape(o['testo'])}</td>"
-            f"<td><a href='{html.escape(o['post_url'])}' target='_blank'>post</a></td>"
-            f"<td><a class='autore' href='{html.escape(o['link'])}' target='_blank'>apri &amp; vedi autore →</a></td></tr>"
+            "<tr data-cid='" + html.escape(o["cid"]) + "'>"
+            "<td class='n'>" + str(n) + "</td>"
+            "<td class='data'>" + html.escape(o["data"]) + "</td>"
+            "<td class='testo'>" + html.escape(o["testo"]) + "</td>"
+            "<td><a href='" + html.escape(o["post_url"]) + "' target='_blank'>post</a></td>"
+            "<td><a class='autore' href='" + html.escape(o["link"]) + "' target='_blank'>apri &amp; vedi autore &rarr;</a></td>"
+            "<td class='azioni'>"
+            "<button class='b b-marca' onclick=\"segna(this,'marcato')\">&#10003; Marca</button>"
+            "<button class='b b-elim' onclick=\"segna(this,'eliminato')\">&#128465; Elimina</button>"
+            "<button class='b b-ripr' onclick=\"segna(this,'')\" title='Ripristina'>&#8617;</button>"
+            "</td></tr>"
         )
     generato = datetime.now().strftime("%d/%m/%Y %H:%M")
-    html_doc = f"""<!doctype html><html lang="it"><head><meta charset="utf-8">
-<title>Offese dirette — Gianmarco Porciani</title>
+    corpo = ("<table><thead><tr><th>#</th><th>Data</th><th>Commento</th><th>Post</th><th>Autore</th>"
+             "<th>Azioni</th></tr></thead><tbody>" + "".join(righe_html) + "</tbody></table>") if diretti \
+            else "<div class='empty'>Nessuna offesa diretta trovata.</div>"
+
+    tpl = r"""<!doctype html><html lang="it"><head><meta charset="utf-8">
+<title>Offese dirette - Gianmarco Porciani</title>
 <style>
-:root{{--bg:#020D1A;--bg2:#071828;--accent:#50C0E8;--text:#F0F8FF;--err:#e05c5c;--muted:#7c93a8}}
-*{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,Arial,sans-serif;padding:28px}}
-h1{{font-family:Syne,Inter,sans-serif;font-size:22px;margin:0 0 4px}}
-.sub{{color:var(--muted);font-size:13px;margin-bottom:18px;line-height:1.5}}
-.badge{{display:inline-block;background:var(--err);color:#fff;border-radius:12px;padding:2px 10px;font-weight:700;font-size:13px}}
-table{{width:100%;border-collapse:collapse;font-size:14px}}
-th,td{{text-align:left;padding:9px 10px;border-bottom:1px solid #12314a;vertical-align:top}}
-th{{color:var(--accent);font-size:12px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;background:var(--bg)}}
-td.n{{color:var(--muted);width:34px}} td.data{{color:var(--muted);white-space:nowrap;width:150px;font-variant-numeric:tabular-nums}}
-td.testo{{max-width:640px}} a{{color:var(--accent);text-decoration:none}} a:hover{{text-decoration:underline}}
-a.autore{{white-space:nowrap;font-weight:600}} tr:hover{{background:#0a1f33}} .empty{{color:var(--muted);padding:30px 0}}
+:root{--bg:#020D1A;--bg2:#071828;--accent:#50C0E8;--text:#F0F8FF;--err:#e05c5c;--warn:#f0a05a;--ok:#22c55e;--muted:#7c93a8}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,Arial,sans-serif;padding:24px}
+h1{font-family:Syne,Inter,sans-serif;font-size:22px;margin:0 0 4px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:14px;line-height:1.5}
+.badge{display:inline-block;background:var(--err);color:#fff;border-radius:12px;padding:2px 10px;font-weight:700;font-size:13px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0 16px}
+.tab{background:var(--bg2);color:var(--text);border:1px solid #12314a;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px}
+.tab.on{background:var(--accent);color:#001018;border-color:var(--accent);font-weight:700}
+.tab .c{opacity:.7;margin-left:4px}
+.sp{flex:1}
+.act{background:var(--bg2);color:var(--accent);border:1px solid #12314a;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #12314a;vertical-align:top}
+th{color:var(--accent);font-size:12px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;background:var(--bg)}
+td.n{color:var(--muted);width:34px} td.data{color:var(--muted);white-space:nowrap;width:145px;font-variant-numeric:tabular-nums}
+td.testo{max-width:560px} a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+a.autore{white-space:nowrap;font-weight:600}
+.azioni{white-space:nowrap}
+.b{border:none;border-radius:7px;padding:5px 9px;font-size:12px;cursor:pointer;margin-right:4px;color:#001018;font-weight:600}
+.b-marca{background:var(--warn)} .b-elim{background:var(--err);color:#fff} .b-ripr{background:#12314a;color:var(--text)}
+tr.marcato{opacity:.55} tr.marcato td.testo{text-decoration:none}
+tr.marcato::after{}
+tr .st{display:none;font-size:11px;font-weight:700;border-radius:10px;padding:1px 7px;margin-left:6px}
+tr.marcato .st.m{display:inline-block;background:var(--warn);color:#001018}
+tr.eliminato .st.e{display:inline-block;background:var(--err);color:#fff}
+tr.eliminato{opacity:.4} tr.eliminato td.testo{text-decoration:line-through}
+tr:hover{background:#0a1f33} .empty{color:var(--muted);padding:30px 0}
+.hint{color:var(--muted);font-size:12px;margin-top:10px}
 </style></head><body>
 <h1>Offese dirette a te</h1>
-<div class="sub">Gianmarco Porciani · post del {anno} · <span class="badge">{len(diretti)} offese dirette</span>
- · {tot_commenti} commenti scanditi · generato il {generato}<br>
-Filtrati: solo commenti volgari <b>rivolti a te / alla Pagina</b> (esclusi litigi tra utenti e attacchi a terzi).
-Clicca <b>"apri &amp; vedi autore"</b> per aprire il commento e vedere chi l'ha scritto.</div>
-{"<table><thead><tr><th>#</th><th>Data</th><th>Commento</th><th>Post</th><th>Autore (link)</th></tr></thead><tbody>" + "".join(righe_html) + "</tbody></table>" if diretti else "<div class='empty'>Nessuna offesa diretta trovata.</div>"}
+<div class="sub">Gianmarco Porciani &middot; post del __ANNO__ &middot; <span class="badge" id="cBadge">0 da gestire</span>
+ &middot; __TOTALE__ offese totali &middot; __COMMENTI__ commenti scanditi &middot; generato il __GENERATO__<br>
+Solo commenti volgari <b>rivolti a te / alla Pagina</b>. Clicca <b>"apri &amp; vedi autore"</b> per vedere chi l'ha scritto.</div>
+
+<div class="bar">
+  <button class="tab on" data-f="da"  onclick="filtro('da',this)">Da gestire <span class="c" id="nDa">0</span></button>
+  <button class="tab"    data-f="marcato" onclick="filtro('marcato',this)">Marcati <span class="c" id="nMar">0</span></button>
+  <button class="tab"    data-f="eliminato" onclick="filtro('eliminato',this)">Eliminati <span class="c" id="nEli">0</span></button>
+  <button class="tab"    data-f="tutti" onclick="filtro('tutti',this)">Tutti <span class="c" id="nTot">0</span></button>
+  <span class="sp"></span>
+  <button class="act" onclick="esporta()">&#11015; Esporta stato (JSON)</button>
+  <label class="act" style="cursor:pointer">&#11014; Importa<input type="file" accept="application/json" style="display:none" onchange="importa(this)"></label>
+</div>
+
+__CORPO__
+
+<div class="hint">Lo stato (marcato/eliminato) si salva nel tuo browser e, con <b>Esporta</b>, in <code>report_gestiti.json</code>:
+salvalo sul Desktop e i prossimi report NON re-inseriranno i gestiti. &#9993; = una sola per persona.</div>
+
+<script>
+const KEY = "gestiti_porciani_v1";
+const INIZIALE = __INIZIALE__;   // stato letto dal file report_gestiti.json alla generazione
+let S = {};
+try { S = JSON.parse(localStorage.getItem(KEY) || "null") || {}; } catch(e) { S = {}; }
+S = Object.assign({}, INIZIALE, S);           // il file fa da base, il browser sovrascrive
+function salva(){ localStorage.setItem(KEY, JSON.stringify(S)); }
+let F = "da";
+
+function applica(tr){
+  const cid = tr.getAttribute("data-cid");
+  const st = S[cid] || "";
+  tr.classList.toggle("marcato", st==="marcato");
+  tr.classList.toggle("eliminato", st==="eliminato");
+}
+function visibile(tr){
+  const st = S[tr.getAttribute("data-cid")] || "da";
+  if(F==="tutti") return true;
+  if(F==="da") return st==="da" || st==="";
+  return st===F;
+}
+function refresh(){
+  let da=0,mar=0,eli=0,tot=0;
+  document.querySelectorAll("tbody tr").forEach(tr=>{
+    applica(tr);
+    tr.style.display = visibile(tr) ? "" : "none";
+    const st = S[tr.getAttribute("data-cid")] || "da";
+    tot++; if(st==="marcato")mar++; else if(st==="eliminato")eli++; else da++;
+  });
+  nId("nDa",da); nId("nMar",mar); nId("nEli",eli); nId("nTot",tot);
+  document.getElementById("cBadge").textContent = da + " da gestire";
+}
+function nId(id,v){ const e=document.getElementById(id); if(e) e.textContent=v; }
+function segna(btn,tipo){
+  const tr = btn.closest("tr"); const cid = tr.getAttribute("data-cid");
+  if(tipo) S[cid]=tipo; else delete S[cid];
+  salva(); refresh();
+}
+function filtro(f,btn){
+  F=f; document.querySelectorAll(".tab").forEach(t=>t.classList.remove("on"));
+  btn.classList.add("on"); refresh();
+}
+function esporta(){
+  const blob = new Blob([JSON.stringify(S,null,0)], {type:"application/json"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+  a.download="report_gestiti.json"; a.click();
+}
+function importa(inp){
+  const file=inp.files[0]; if(!file) return;
+  const r=new FileReader();
+  r.onload=()=>{ try{ const o=JSON.parse(r.result); S=Object.assign(S,o); salva(); refresh(); alert("Stato importato."); }catch(e){ alert("File non valido."); } };
+  r.readAsText(file);
+}
+salva(); refresh();
+</script>
 </body></html>"""
+    html_doc = (tpl
+                .replace("__ANNO__", str(anno))
+                .replace("__TOTALE__", str(len(diretti)))
+                .replace("__COMMENTI__", str(tot_commenti))
+                .replace("__GENERATO__", generato)
+                .replace("__INIZIALE__", json.dumps(gestiti))
+                .replace("__CORPO__", corpo))
     html_path = os.path.join(DESKTOP, "report_diretti_porciani.html")
     open(html_path, "w", encoding="utf-8").write(html_doc)
 
