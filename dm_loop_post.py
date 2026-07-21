@@ -92,8 +92,14 @@ def main():
     max_post = None
     da_post = 1
     cap = 50   # tetto giornaliero (deve combaciare con dailyCap di fb-dm; override con --cap=N)
+    ore = None        # finestra ore sui commenti da targetizzare (None = --tutti, sconsigliato)
+    max_ore = 6.0     # SICUREZZA: durata massima del giro. Oltre, chiude (il cron ripartira' domani)
     for a in sys.argv[1:]:
-        if a.startswith("--max-post="):
+        if a.startswith("--ore="):
+            ore = float(a.split("=")[1])
+        elif a.startswith("--max-ore="):
+            max_ore = float(a.split("=")[1])
+        elif a.startswith("--max-post="):
             max_post = int(a.split("=")[1])
         elif a.startswith("--da-post="):
             da_post = max(1, int(a.split("=")[1]))
@@ -102,19 +108,31 @@ def main():
 
     page_id, _ = rb.get_page_info(tok)
     posts = lista_post(tok, page_id, max_post)
-    print(f"=== {len(posts)} post trovati (dal piu' recente). Riparto dal #{da_post}. ===", flush=True)
+    finestra = f"ultime {ore:g}h" if ore else "TUTTI i commentatori (sconsigliato: i vecchi non sono contattabili)"
+    print(f"=== {len(posts)} post trovati (dal piu' recente). Riparto dal #{da_post}. "
+          f"Finestra: {finestra}. Durata max giro: {max_ore:g}h ===", flush=True)
+    inizio_giro = time.time()
 
     for i, p in enumerate(posts, 1):
         if i < da_post:
             continue
+        # SICUREZZA: un giro non puo' durare all'infinito (prima arrivava a 25-28h e bloccava
+        # il giro del giorno dopo). Oltre max_ore chiude: il cron ripartira' al prossimo orario.
+        if time.time() - inizio_giro >= max_ore * 3600:
+            print(f"\n⏱  Raggiunta la durata massima del giro ({max_ore:g}h): chiudo. "
+                  f"Riprendi/continuera' al prossimo giro (--da-post={i}).", flush=True)
+            break
         attendi_se_cap(cap)   # tetto giornaliero raggiunto: aspetta il giorno nuovo
         attendi_se_notte()    # non avanzare di notte: aspetta le 08:00
         pid = p["id"]
         url = p.get("permalink_url") or f"https://www.facebook.com/{pid}"
         print(f"\n########## POST {i}/{len(posts)} — {pid} (oggi {conta_oggi()}/{cap}) ##########", flush=True)
 
-        # 1) targeting di QUESTO post (tutti i commentatori sostenitori)
-        rc = subprocess.run([sys.executable, "dm_targets.py", "--post", url, "--tutti"], cwd=HERE)
+        # 1) targeting di QUESTO post. Con --ore N si prendono solo i commenti recenti: sui vecchi
+        #    Facebook non mostra piu' "Invia messaggio" (no-button) -> lavorarli e' tempo sprecato.
+        cmd_t = [sys.executable, "dm_targets.py", "--post", url]
+        cmd_t += ["--ore", str(ore)] if ore else ["--tutti"]
+        rc = subprocess.run(cmd_t, cwd=HERE)
         if rc.returncode != 0:
             print(f"  [targeting fallito su {pid}] passo al prossimo post", flush=True)
             continue
