@@ -84,8 +84,10 @@ LIKE_DELAY_MAX = 9
 # Sorveglianza post nuovi/caldi
 SEC_SORV_CHECK = 300        # ogni 5 min: check "e' uscito un post nuovo?" e ritmo di risorveglianza
 ORE_SORVEGLIANZA = 3.0      # un post e' "caldo" (da sorvegliare in modo importante) per le prime N ore
-MAX_RUN_SEC = 3300          # una run non resta viva oltre ~55 min (poi il cron la riavvia): evita
-                            # il limite 6h di GitHub Actions e l'accumulo della coda cron
+MAX_RUN_SEC = 1500          # DURATA MAX di una run (~25 min). Applicata anche DENTRO i loop risposte
+                            # e coda: senza, un post no-cap girava per ore -> run da 2-3h che si
+                            # accavallavano sul cron cloud (cancellazioni + errori infra). Il resto
+                            # del lavoro lo fa la run successiva (cron ogni 15-30 min).
 
 # ---------------------------------------------------------------------------
 # PRE-FILTRO A COSTO ZERO (niente Claude per i commenti banali-positivi)
@@ -496,9 +498,10 @@ def _num_commento(cid):
 
 
 def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_writer,
-                max_pub=None, no_like=False, classificati=None, interrompi_se_nuovo=None):
-    """Ritorna True se e' stato INTERROTTO perche' e' comparso un post nuovo (per dargli priorita').
-    interrompi_se_nuovo: callable che ritorna True se c'e' un post piu' fresco da servire subito."""
+                max_pub=None, no_like=False, classificati=None, interrompi_se_nuovo=None, scadenza=None):
+    """Ritorna: 'nuovo' se interrotto per dare priorita' a un post fresco, 'scaduto' se ha superato
+    la durata max della run, altrimenti '' (post finito).
+    interrompi_se_nuovo: callable -> True se c'e' un post piu' fresco. scadenza: time.time() limite."""
     if classificati is None:
         classificati = {}
     print(f"\n=== Post {post_id} ===")
@@ -620,10 +623,16 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
     n_pub = 0
     n_like = 0
     errori = 0
-    interrotto = False
+    esito = ""
     ultimo_check = time.time()   # check A TEMPO: ogni SEC_SORV_CHECK secondi (5 min)
     for d in da_rispondere:
         cid = d["cid"]
+        # SCADENZA: durata max della run applicata ANCHE dentro il loop (senza, un post no-cap
+        # girava per ore). I progressi sono salvati a ogni risposta -> la run dopo riprende.
+        if scadenza and time.time() >= scadenza:
+            print("  ⏱  Durata max run raggiunta: chiudo questo post (riprendera' il prossimo giro).")
+            esito = "scaduto"
+            break
         # Priorita' ai post nuovi/caldi: ogni 5 min un check LEGGERO (GET, non Claude, non tocca le
         # risposte). Se e' uscito un post piu' fresco -o e' ora di risorvegliare il post caldo-
         # interrompo qui e ci vado. I progressi sono salvati a ogni risposta -> riprendero' dopo.
@@ -631,7 +640,7 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
             ultimo_check = time.time()
             if interrompi_se_nuovo():
                 print("  >> Priorita' post fresco/caldo: interrompo questo post (riprendero' dopo).")
-                interrotto = True
+                esito = "nuovo"
                 break
         # 1) LIKE del commento (prima)
         if not no_like and cid not in likati:
@@ -666,10 +675,10 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
         print(f"    ...pausa {pausa:.0f}s")
         time.sleep(pausa)
     print(f"  Fatto su questo post: {n_pub} like+risposta.")
-    return interrotto
+    return esito
 
 
-def drena_coda(token, coda, done, page_id, max_pub=None):
+def drena_coda(token, coda, done, page_id, max_pub=None, scadenza=None):
     """Pubblica le risposte pendenti in coda su QUALSIASI commento, anche su post vecchi
     (oltre gli ultimi N lavorati). Cosi' i sostenitori in coda vengono risposti comunque."""
     pendenti = [c for c in list(coda.keys()) if c not in done]
@@ -679,6 +688,9 @@ def drena_coda(token, coda, done, page_id, max_pub=None):
     n_pub = 0
     errori = 0
     for cid in pendenti:
+        if scadenza and time.time() >= scadenza:
+            print("  ⏱  Durata max run raggiunta: interrompo il drenaggio coda (riprende il prossimo giro).")
+            break
         risposta = (coda.get(cid) or {}).get("risposta", "")
         if not risposta:
             coda.pop(cid, None)
@@ -806,18 +818,19 @@ def main():
     writer = csv.writer(f_csv)
     writer.writerow(["post_id", "autore", "commento", "categoria", "rispondo", "risposta_proposta"])
 
+    scadenza = time.time() + MAX_RUN_SEC   # una run non supera MAX_RUN_SEC (cloud cron-friendly)
     try:
         if args.post:
             pid = estrai_post_id(args.post, page_id)
             lavora_post(client, token, page_id, pid, args.live, done, visti, coda, writer,
-                        args.max, args.no_like, classificati)
+                        args.max, args.no_like, classificati, scadenza=scadenza)
         else:
             # Loop con PRIORITA' AI POST NUOVI: ad ogni giro ri-leggo la lista (dal piu' recente),
             # prendo il primo non ancora fatto in questa run. Se pubblichi un post mentre lavoro,
             # lo becco qui (ed eventualmente interrompo il post in corso, vedi interrompi_se_nuovo).
             processed = set()          # post di backlog gia' completati in QUESTA run (una volta basta)
             ultimo_visita = {}         # post_id -> time.time() dell'ultima lavorazione (per la sorveglianza)
-            run_start = time.time()
+            run_start = scadenza - MAX_RUN_SEC
             n_giro = 0
 
             def eta_ore(post):
@@ -878,16 +891,19 @@ def main():
                         return True
                     return False
 
-                interrotto = lavora_post(client, token, page_id, pid_corrente, args.live, done, visti,
-                                         coda, writer, args.max, args.no_like, classificati,
-                                         interrompi_se_nuovo=interrompi if args.live else None)
+                esito = lavora_post(client, token, page_id, pid_corrente, args.live, done, visti,
+                                    coda, writer, args.max, args.no_like, classificati,
+                                    interrompi_se_nuovo=interrompi if args.live else None, scadenza=scadenza)
                 ultimo_visita[pid_corrente] = time.time()
+                if esito == "scaduto":
+                    print("  ⏱  Durata max run: chiudo il giro (il cron riprende tra poco).")
+                    break
                 # Un post CALDO non lo "chiudo" mai (va risorvegliato); un post di backlog si', se finito.
-                if not interrotto and not (caldo and pid_corrente == caldo["id"]):
+                if esito != "nuovo" and not (caldo and pid_corrente == caldo["id"]):
                     processed.add(pid_corrente)
         # Svuota la coda anche per i commenti su post piu' vecchi (oltre gli ultimi N).
-        if args.live:
-            drena_coda(token, coda, done, page_id, max_pub=args.max)
+        if args.live and time.time() < scadenza:
+            drena_coda(token, coda, done, page_id, max_pub=args.max, scadenza=scadenza)
     finally:
         f_csv.close()
 
