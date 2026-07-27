@@ -34,6 +34,20 @@ FBDIR = os.path.abspath(os.path.join(HERE, "..", "fb-invite"))
 STATE_FILE = os.path.join(FBDIR, ".fb-dm-state.json")
 
 
+def tieni_sveglio(on=True):
+    """Impedisce a Windows di sospendersi DURANTE il giro (a batteria dormiva dopo 3 min e uccideva
+    la run). Non cambia le impostazioni globali: vale solo finche' il processo e' vivo."""
+    try:
+        import ctypes
+        ES_CONTINUOUS = 0x80000000
+        ES_SYSTEM_REQUIRED = 0x00000001
+        ES_AWAYMODE_REQUIRED = 0x00000040
+        flags = ES_CONTINUOUS | ((ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED) if on else 0)
+        ctypes.windll.kernel32.SetThreadExecutionState(flags)
+    except Exception:
+        pass
+
+
 def _oggi_key():
     """Stesso formato di todayKey() in fb-dm.mjs: 'AAAA-M-G' (senza zero-padding)."""
     d = datetime.now()
@@ -85,6 +99,7 @@ def lista_post(tok, page_id, max_post=None):
 
 
 def main():
+    tieni_sveglio(True)   # niente sospensione PC durante il giro (a batteria dormiva dopo 3 min)
     tok = os.environ.get("FB_PAGE_TOKEN")
     if not tok:
         print("Manca FB_PAGE_TOKEN (.env)."); sys.exit(1)
@@ -147,6 +162,7 @@ def main():
             print(f"  [invio interrotto/errore su {pid}] passo al prossimo post", flush=True)
 
     print("\n=== FINE: tutti i post processati. ===", flush=True)
+    tieni_sveglio(False)   # rilascia: il PC puo' tornare a sospendersi normalmente
 
 
 if __name__ == "__main__":
