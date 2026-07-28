@@ -45,18 +45,29 @@ def obj_id_from_arg(arg):
     return arg
 
 
+# Scelta dell'utente (2026-07-28): il DM va a TUTTI i commentatori, qualunque cosa
+# abbiano scritto. Con questo a False la classificazione qui sotto non gira affatto —
+# senza un filtro per categoria non deciderebbe nulla, sarebbe solo costo API.
+# Rimettere True per tornare ai soli sostenitori.
+SOLO_SOSTENITORI = False
+
 # Prompt LEGGERO: solo categoria, niente risposta (i DM usano un template fisso).
+# Usato solo quando SOLO_SOSTENITORI = True.
 CLASSIFY_SYS = (
     "Classifichi i commenti sotto un post di un creator politico (area sovranista/identitaria). "
-    "Per OGNI commento numerato dai SOLO la categoria: sostenitore | critico | neutro | volgare | spam. "
+    "Per OGNI commento numerato dai SOLO la categoria: sostenitore | critico | neutro | volgare | macabro | spam. "
     "Un commento di SOSTEGNO che usa parole forti verso avversari/sistema (es. 'traditori', 'vergogna', "
-    "'schifo') è 'sostenitore', NON volgare. Rispondi SOLO col JSON richiesto."
+    "'schifo') è 'sostenitore', NON volgare. "
+    "'macabro' ha la PRECEDENZA su ogni altra categoria, anche su 'sostenitore': qualsiasi commento che "
+    "augura, celebra o irride la morte, il ferimento o la sofferenza fisica di chiunque (vittime, criminali, "
+    "avversari) — anche se allineato alla nostra linea, anche se ironico. In dubbio: 'macabro'. "
+    "Rispondi SOLO col JSON richiesto."
 )
 CLASSIFY_SCHEMA = {
     "type": "object",
     "properties": {"risultati": {"type": "array", "items": {"type": "object", "properties": {
         "n": {"type": "integer"},
-        "categoria": {"type": "string", "enum": ["sostenitore", "critico", "neutro", "volgare", "spam"]},
+        "categoria": {"type": "string", "enum": ["sostenitore", "critico", "neutro", "volgare", "macabro", "spam"]},
     }, "required": ["n", "categoria"], "additionalProperties": False}}},
     "required": ["risultati"], "additionalProperties": False,
 }
@@ -191,38 +202,47 @@ def main():
         print("Nessun commento nella finestra. Fine.")
         return
 
-    # Classificazione CONDIVISA: riusa la cache scritta dal bot commenti, pre-filtra i banali,
-    # e manda a Claude (SOLO-categoria) solo i commenti non ancora classificati e non banali.
-    classificati = rb._carica_dict(rb.CLASSIFICATI_FILE)
-    cat_di = {}          # num -> categoria
-    da_claude = []       # (num, msg) ancora da classificare
-    n_cache = n_banali = 0
-    for c in entro:
-        num = c["id"].split("_")[-1]
-        msg = (c.get("message") or "").strip()
-        if num in classificati:
-            cat_di[num] = classificati[num]; n_cache += 1
-        elif rb.e_banale_positivo(msg):
-            cat_di[num] = "sostenitore"; classificati[num] = "sostenitore"; n_banali += 1
-        else:
-            da_claude.append((num, msg))
-    print(f"  da cache condivisa: {n_cache} | banali (0 Claude): {n_banali} | a Claude: {len(da_claude)}")
+    if SOLO_SOSTENITORI:
+        # Classificazione CONDIVISA: riusa la cache scritta dal bot commenti, pre-filtra i
+        # banali, e manda a Claude (SOLO-categoria) solo i non ancora classificati.
+        classificati = rb._carica_dict(rb.CLASSIFICATI_FILE)
+        cat_di = {}          # num -> categoria
+        da_claude = []       # (num, msg) ancora da classificare
+        n_cache = n_banali = 0
+        for c in entro:
+            num = c["id"].split("_")[-1]
+            msg = (c.get("message") or "").strip()
+            if num in classificati:
+                cat_di[num] = classificati[num]; n_cache += 1
+            elif rb.e_banale_positivo(msg):
+                cat_di[num] = "sostenitore"; classificati[num] = "sostenitore"; n_banali += 1
+            else:
+                da_claude.append((num, msg))
+        print(f"  da cache condivisa: {n_cache} | banali (0 Claude): {n_banali} | a Claude: {len(da_claude)}")
 
-    if da_claude:
-        client = anthropic.Anthropic()
-        for num, cat in classifica_solo_categoria(client, da_claude).items():
-            cat_di[num] = cat
-            classificati[num] = cat
+        if da_claude:
+            client = anthropic.Anthropic()
+            for num, cat in classifica_solo_categoria(client, da_claude).items():
+                cat_di[num] = cat
+                classificati[num] = cat
 
-    rb._salva_dict(rb.CLASSIFICATI_FILE, classificati)   # aggiorna la cache condivisa
+        rb._salva_dict(rb.CLASSIFICATI_FILE, classificati)   # aggiorna la cache condivisa
 
-    targets = []
-    for c in entro:
-        num = c["id"].split("_")[-1]
-        if cat_di.get(num) == "sostenitore":
-            targets.append({"comment_id": num, "full_id": c["id"],
-                            "message": (c.get("message") or "")[:120]})
-    print(f"{len(targets)} sostenitori → target")
+        targets = [
+            {"comment_id": c["id"].split("_")[-1], "full_id": c["id"],
+             "message": (c.get("message") or "")[:120]}
+            for c in entro if cat_di.get(c["id"].split("_")[-1]) == "sostenitore"
+        ]
+        print(f"{len(targets)} sostenitori → target")
+    else:
+        # DM a TUTTI i commentatori nella finestra, qualunque cosa abbiano scritto.
+        # Nessuna chiamata a Claude: senza filtro per categoria, classificare non decide nulla.
+        targets = [
+            {"comment_id": c["id"].split("_")[-1], "full_id": c["id"],
+             "message": (c.get("message") or "")[:120]}
+            for c in entro
+        ]
+        print(f"{len(targets)} commentatori → target (nessun filtro per categoria)")
 
     _scrivi(args.out, post_url, targets)
     print(f"Scritto {os.path.abspath(args.out)}")

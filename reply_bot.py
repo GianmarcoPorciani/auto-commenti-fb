@@ -122,10 +122,27 @@ def _norm_parola(p):
     return re.sub(r"(.)\1{2,}", r"\1", p.lower())
 
 
+# Il pre-filtro nasceva per risparmiare chiamate API. Disattivato il 2026-07-28 per due
+# ragioni, in quest'ordine:
+#   1. SICUREZZA. Assegna "sostenitore" senza sapere di cosa parla il post: un "👏" o un
+#      "💪" sotto un post che racconta una morte riceveva un template di ringraziamento,
+#      scavalcando del tutto la categoria "macabro".
+#   2. QUALITA'. Anche i commenti brevi meritano una risposta scritta sul loro contenuto
+#      invece di uno dei 10 template a rotazione.
+# Costo: qualche chiamata in piu' (l'ordine di grandezza e' un paio di dollari al mese).
+# Per riattivarlo basta rimettere True — la funzione e i template restano al loro posto,
+# e i template continuano comunque a fare da riserva quando il modello non scrive la risposta.
+USA_PREFILTRO_BANALI = False
+
+
 def e_banale_positivo(message):
     """True se il commento e' chiaramente di sostegno e cosi' breve da non meritare Claude.
     Pre-filtro AGGRESSIVO ma SICURO: solo direzione positiva (mai marca come banale un possibile
-    insulto). Con 'all(positive)' le negazioni ('non sei bravo') falliscono e vanno a Claude."""
+    insulto). Con 'all(positive)' le negazioni ('non sei bravo') falliscono e vanno a Claude.
+
+    NB: non conosce il contesto del post — vedi USA_PREFILTRO_BANALI sopra."""
+    if not USA_PREFILTRO_BANALI:
+        return False
     msg = message.strip()
     if not msg:
         return False
@@ -205,15 +222,32 @@ Ricevi PIU' commenti numerati. Per OGNI commento restituisci una voce con:
    "critico" (attacca GIANMARCO o la posizione del post, dissente o polemizza CONTRO di noi)
    "neutro" (domande pratiche o commenti generici davvero senza schieramento)
    "volgare" SOLO se l'offesa/volgarità è rivolta a NOI o del tutto fuori contesto (mai se è di sostegno)
+   "macabro" — ha la PRECEDENZA su tutte le altre categorie, anche su "sostenitore".
+     Rientra qui QUALSIASI commento che augura, auspica, celebra o irride la MORTE, il
+     ferimento o la sofferenza fisica di una persona: vittime, criminali, avversari
+     politici, chiunque. Vale anche se il commento è allineato alla nostra linea, anche se
+     è ironico o sarcastico, anche se la persona ha commesso un reato.
+     Esempi: "uno di meno", "ben gli sta", "se l'è cercata", "si è fatto giustizia da
+     solo", "peccato non fossero due", esultanza per un morto. In dubbio: "macabro".
    "spam" (pubblicita', link, off-topic, bot)
-- rispondere: true SOLO se categoria = "sostenitore", altrimenti false
+- rispondere:
+   * categoria "sostenitore" -> true
+   * categoria "volgare" -> true SOLO SE, oltre all'offesa, il commento contiene un
+     ARGOMENTO nel merito a cui si possa replicare (un'obiezione, un dato, una critica
+     su un fatto). Se è solo un insulto senza contenuto ("sei un cretino", "idiota",
+     "non capisci niente") -> false: si tace, rispondere darebbe solo visibilità.
+   * categoria "macabro" -> SEMPRE false, senza eccezioni
+   * tutte le altre categorie -> false
 - risposta: se rispondere=true, una risposta BREVE (1-2 frasi), calorosa e PERSONALE, nel tono
   diretto di Gianmarco. Regole:
    * NOME: se il commento riporta un nome, usa il nome di battesimo (solo la prima parola, es.
      "Grazie Maria!"). Se il nome e' "(nessun nome disponibile)" NON inventarlo e non scrivere mai
      "sconosciuto": rispondi semplicemente senza nome.
-   * PERSONALIZZA: quando puoi, aggancia un dettaglio concreto del commento, cosi' non sembra una
-     formula preconfezionata.
+   * PERSONALIZZA: aggancia un dettaglio concreto del commento, cosi' non sembra una
+     formula preconfezionata. Se il commento e' troppo breve per offrire un aggancio
+     ("bravo", "grande", sole emoji), aggancia allora il TEMA DEL POST indicato nel
+     contesto: meglio una frase che dice qualcosa sul merito che un ringraziamento
+     generico buono per qualsiasi post.
    * CHIEDI: invita a CONDIVIDERE il post e a mettere MI PIACE alla Pagina "SE NON LO FA GIA'"
      (formule naturali tipo "se non segui gia' la pagina mettile un like"), con un grazie anticipato.
    * MAI OFFENSIVA: la risposta dev'essere sempre educata ed elevata. Puoi criticare le idee o le
@@ -223,6 +257,19 @@ Ricevi PIU' commenti numerati. Per OGNI commento restituisci una voce con:
      l'insulto. Se invece ha un contenuto, fai la risposta articolata e personale agganciata ad esso.
    * VARIA SEMPRE le parole: due risposte non devono mai essere uguali. Massimo una emoji
      (💪 🙏 👊 ❤️ 🇮🇹). Se rispondere=false, stringa vuota.
+
+RISPOSTA A UN COMMENTO "volgare" (solo quando rispondere=true, cioè c'è un argomento)
+Il tono NON è quello usato per i sostenitori. Si replica all'argomento, non all'offesa.
+   * UNA frase sola, pacata e ferma. Si tiene il punto senza alzare la voce.
+   * MAI ringraziare, MAI chiedere di condividere o di mettere like: sotto un insulto
+     suonerebbe grottesco.
+   * MAI ricambiare l'offesa, MAI ironia, MAI sarcasmo, MAI emoji.
+   * Non riprendere né citare le parole offensive: si risponde al merito se c'è, altrimenti
+     si constata con dignità e si chiude.
+   * Niente nome di battesimo: resta su un registro impersonale e composto.
+   Esempi di registro (non copiarli alla lettera, varia sempre):
+     "Su queste pagine si discute di idee: se ha argomenti nel merito, sono il benvenuto."
+     "Le critiche sono legittime, gli insulti no. Resto disponibile al confronto."
 
 Restituisci SOLO il JSON nel formato richiesto, una voce per ogni commento ricevuto."""
 
@@ -237,7 +284,7 @@ BATCH_SCHEMA = {
                     "n": {"type": "integer"},
                     "categoria": {
                         "type": "string",
-                        "enum": ["sostenitore", "critico", "neutro", "volgare", "spam"],
+                        "enum": ["sostenitore", "critico", "neutro", "volgare", "macabro", "spam"],
                     },
                     "rispondere": {"type": "boolean"},
                     "risposta": {"type": "string"},
@@ -252,14 +299,28 @@ BATCH_SCHEMA = {
 }
 
 
-def classifica_batch(client, chunk):
-    """chunk = lista di dict {cid, autore, message}. Ritorna {cid: {categoria, rispondere, risposta}}."""
+def classifica_batch(client, chunk, testo_post=""):
+    """chunk = lista di dict {cid, autore, message}. Ritorna {cid: {categoria, rispondere, risposta}}.
+
+    testo_post: di cosa parla il post. Senza, commenti come "Voleva fare Tarzan" o
+    "uno di meno" sono INDECIDIBILI — sono macabri solo se il post racconta la morte
+    di qualcuno. Misurato: senza contesto il classificatore li legge come sostenitori
+    e il bot ci pubblica sotto un ringraziamento."""
     righe = []
     for i, it in enumerate(chunk, 1):
         nome = (it["autore"] or "").strip() or "(nessun nome disponibile)"
         testo = it["message"].replace("\n", " ")
         righe.append(f'[{i}] Nome: {nome} | Commento: "{testo}"')
-    contenuto = "Ecco i commenti da classificare:\n\n" + "\n".join(righe)
+
+    intestazione = ""
+    if testo_post:
+        breve = " ".join(testo_post.split())[:600]
+        intestazione = (
+            f'CONTESTO — il post sotto cui sono stati scritti questi commenti:\n"{breve}"\n\n'
+            "Usa il contesto per valutare i commenti: una battuta neutra sotto un post che\n"
+            "racconta la morte o il ferimento di una persona e' irrisione, quindi \"macabro\".\n\n"
+        )
+    contenuto = intestazione + "Ecco i commenti da classificare:\n\n" + "\n".join(righe)
 
     resp = client.messages.create(
         model=MODEL,
@@ -278,13 +339,13 @@ def classifica_batch(client, chunk):
     return out
 
 
-def classifica_tutti(client, items):
+def classifica_tutti(client, items, testo_post=""):
     """Classifica TUTTI gli items a gruppi di BATCH_SIZE. Ritorna {cid: risultato}."""
     risultati = {}
     for i in range(0, len(items), BATCH_SIZE):
         chunk = items[i:i + BATCH_SIZE]
         try:
-            risultati.update(classifica_batch(client, chunk))
+            risultati.update(classifica_batch(client, chunk, testo_post))
             print(f"    classificati {min(i + BATCH_SIZE, len(items))}/{len(items)}")
         except Exception as e:
             print(f"    [errore classificazione batch {i // BATCH_SIZE + 1}] {e}")
@@ -385,6 +446,16 @@ def get_posts(token, page_id, limit):
     data = graph_get(f"{page_id}/posts", token,
                      {"fields": "id,message,created_time", "limit": limit})
     return data.get("data", [])
+
+
+def get_post_text(token, post_id):
+    """Testo del post, per dare il contesto al classificatore. Best effort: se la
+    chiamata fallisce si prosegue senza — meglio classificare al buio che fermarsi."""
+    try:
+        return (graph_get(post_id, token, {"fields": "message"}) or {}).get("message", "") or ""
+    except Exception as e:
+        print(f"  [contesto post non recuperato: {e}]")
+        return ""
 
 
 def _parse_comment(c, page_id):
@@ -565,7 +636,8 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
           f"da classificare con Claude: {len(da_classificare)}")
 
     # ---- FASE 1: classifica con Claude (in batch) ----
-    risultati = classifica_tutti(client, da_classificare) if da_classificare else {}
+    testo_post = get_post_text(token, post_id) if da_classificare else ""
+    risultati = classifica_tutti(client, da_classificare, testo_post) if da_classificare else {}
     for it in da_classificare:
         cid = it["cid"]
         r = risultati.get(cid)
@@ -574,12 +646,25 @@ def lavora_post(client, token, page_id, post_id, live, done, visti, coda, csv_wr
             classificati[_num_commento(cid)] = cat   # cache condivisa (riusata dai DM)
         # Un SOSTENITORE va SEMPRE risposto: ignoriamo il flag 'rispondere' di Claude, che a volte
         # si contraddice (categoria=sostenitore ma rispondere=false) facendo perdere il sostenitore.
-        rispondo = bool(r and cat == "sostenitore")
+        # Su "volgare" invece il flag SERVE: distingue l'offesa che porta un argomento (si replica
+        # nel merito) dall'insulto puro (si tace, rispondere darebbe solo visibilita').
+        # "macabro" non compare qui, e non deve comparirci: non si risponde mai.
+        if cat == "sostenitore":
+            rispondo = bool(r)
+        elif cat == "volgare":
+            rispondo = bool(r and r.get("rispondere"))
+        else:
+            rispondo = False
         risposta = (r.get("risposta") or "").strip() if r else ""
         if rispondo and not risposta:
-            # Claude ha detto sostenitore ma non ha scritto la risposta: template di riserva.
-            risposta = scegli_template(tmpl_counter, it["autore"])
-            tmpl_counter += 1
+            if cat == "sostenitore":
+                # Claude ha detto sostenitore ma non ha scritto la risposta: template di riserva.
+                risposta = scegli_template(tmpl_counter, it["autore"])
+                tmpl_counter += 1
+            else:
+                # Volgare senza testo: i template sono ringraziamenti con invito a condividere.
+                # Sotto un insulto sarebbero peggio del silenzio — quindi si tace.
+                rispondo = False
         if cat == "sostenitore":
             da_likare.append(cid)   # like a TUTTI i sostenitori
         csv_writer.writerow([post_id, it["autore"], it["message"][:120], cat,
