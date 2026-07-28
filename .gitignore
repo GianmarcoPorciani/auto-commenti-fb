@@ -13,3 +13,6 @@ __pycache__/
 
 # Backup locale
 reply_bot_v1_backup.py
+
+# backup locali di stato (non vanno nel repo pubblico)
+*.BACKUP-*.json
