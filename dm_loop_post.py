@@ -33,6 +33,24 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 FBDIR = os.path.abspath(os.path.join(HERE, "..", "fb-invite"))
 STATE_FILE = os.path.join(FBDIR, ".fb-dm-state.json")
 
+PER_POST_TIMEOUT = 90 * 60   # SICUREZZA: se il sender (node) si APPENDE su una chiamata Playwright,
+                             # lo uccidiamo dopo 90 min e passiamo al prossimo post. Senza questo,
+                             # un hang bloccava il python in attesa per ORE (e il tetto 6h non scattava).
+
+
+def kill_sender_residui():
+    """Uccide il sender node fb-dm.mjs e gli Edge del profilo automazione (dopo un timeout/hang)."""
+    ps = (
+        "Get-CimInstance Win32_Process | ? { $_.CommandLine -and $_.CommandLine -like '*fb-dm.mjs*' -and $_.Name -eq 'node.exe' } | "
+        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; "
+        "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" | ? { $_.CommandLine -like '*fb-profile-dm*' } | "
+        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+    )
+    try:
+        subprocess.run(["powershell", "-NoProfile", "-Command", ps], timeout=30)
+    except Exception:
+        pass
+
 
 def tieni_sveglio(on=True):
     """Impedisce a Windows di sospendersi DURANTE il giro (a batteria dormiva dopo 3 min e uccideva
@@ -152,13 +170,21 @@ def main():
             print(f"  [targeting fallito su {pid}] passo al prossimo post", flush=True)
             continue
 
-        # 2) invio DM ai target di questo post (browser). Cap giornaliero + guardia oraria 08-00.
-        rc = subprocess.run(f"node fb-dm.mjs --live --max-day={cap}", cwd=FBDIR, shell=True)
-        if rc.returncode == 42:
+        # 2) invio DM ai target di questo post (browser). Timeout anti-hang: se il sender si appende
+        #    oltre PER_POST_TIMEOUT, lo uccido e passo al prossimo post (non blocca piu' il giro).
+        try:
+            rc = subprocess.run(f"node fb-dm.mjs --live --max-day={cap}", cwd=FBDIR, shell=True,
+                                timeout=PER_POST_TIMEOUT)
+            codice = rc.returncode
+        except subprocess.TimeoutExpired:
+            print(f"\n⏱  Sender bloccato oltre {PER_POST_TIMEOUT//60} min su {pid}: lo termino e passo al prossimo.", flush=True)
+            kill_sender_residui()
+            codice = 0
+        if codice == 42:
             print(f"\n⛔ Sender fermato per BLOCCO Meta (troppi no-composer). Interrompo tutto il giro.", flush=True)
             print("   Riprova piu' tardi (il blocco rientra in ore/giorni). Riprendi con --da-post=N.", flush=True)
             break
-        if rc.returncode != 0:
+        if codice != 0:
             print(f"  [invio interrotto/errore su {pid}] passo al prossimo post", flush=True)
 
     print("\n=== FINE: tutti i post processati. ===", flush=True)
