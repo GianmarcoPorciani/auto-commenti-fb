@@ -1,4 +1,4 @@
-# Segreti: MAI su GitHub (token e chiavi vanno nei Secrets cifrati del repo)
+﻿# Segreti: MAI su GitHub (token e chiavi vanno nei Secrets cifrati del repo)
 .env
 .env.*
 *.bak
@@ -15,4 +15,4 @@ __pycache__/
 reply_bot_v1_backup.py
 
 # backup locali di stato (non vanno nel repo pubblico)
-*.BACKUP-*.json
+*.BACKUP*.json
