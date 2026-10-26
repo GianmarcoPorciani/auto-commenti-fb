@@ -1,14 +1,10 @@
 name: auto-commenti-fb (giro lampo)
 
-# Giro extra "ora d'oro": ai minuti :15 e :45 di ogni ora diurna. Sommato al giro normale
-# (:00 e :30) porta la cadenza a UN GIRO OGNI 15 MIN nelle prime 2h dopo una pubblicazione.
-# SOLO se c'e' un post fresco (< 2h): altrimenti esce subito (costo zero).
+# Giro extra "ora d'oro" (solo se c'e' un post < 2h, pause piu' strette).
+# DISATTIVATO come pianificazione: col cron esterno ogni 10 min il giro normale sorveglia gia' il
+# post caldo ogni 5 min. Resta avviabile a mano (Actions -> Run workflow) per i post che esplodono.
 
 on:
-  schedule:
-    # :15 e :45 (il giro normale gira a :00 e :30) -> ogni 15 min quando c'e' un post recente.
-    # Cron 24h: e' il codice a fermarsi fuori orario (attivo 08:00-00:00, fuso Europe/Rome).
-    - cron: "15,45 * * * *"
   workflow_dispatch: {}
 
 # stesso gruppo del giro normale: i due non si sovrappongono mai (niente doppioni)

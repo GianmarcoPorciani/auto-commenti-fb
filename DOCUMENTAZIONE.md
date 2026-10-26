@@ -2,7 +2,7 @@
 
 **Progetto:** automazione community management della Pagina Facebook **Gianmarco Porciani** (Futuro Nazionale)
 **Stato:** operativo, in cloud, attivo 24/7
-**Repository:** https://github.com/GianmarcoPorciani/auto-commenti-fb (privato)
+**Repository:** https://github.com/GianmarcoPorciani/auto-commenti-fb (pubblico)
 **Ultimo aggiornamento doc:** 29 giugno 2026
 
 ---
@@ -18,8 +18,8 @@ Un sistema che gestisce **da solo** i commenti sotto i post della Pagina:
   commenta quando Facebook lo fornisce (≈1 commento su 4: per gli altri il nome è oscurato per privacy)
 - **Mette like** a tutti i commenti dei sostenitori
 - **Non risponde** a critici, volgari, spam (ma non li censura: restano lì e fanno volume)
-- Gira **in cloud ogni ora** di giorno (≈06–24 ora italiana), con **giri "lampo" extra** sui post
-  appena pubblicati (spinta "ora d'oro"); di **notte (00–06) sta fermo**. Tutto a PC spento.
+- Gira **in cloud ogni 10 minuti** dalle 08 alle 24 (ora italiana), avviato da un cron esterno
+  (cron-job.org); di **notte (00–08) sta fermo**. Tutto a PC spento.
 
 In più, due strumenti "a comando":
 - **Creazione post** (testo scritto da te o generato dall'AI, con foto e primo commento "@follower")
@@ -135,13 +135,17 @@ Il token risultante **non scade** e ha tutti i permessi: rispondere, like, crear
 
 Il bot gira sui server di GitHub, **gratis**, senza bisogno che il PC sia acceso.
 
-- **Repository privato:** `GianmarcoPorciani/auto-commenti-fb`
-- **Pianificazione:** due workflow complementari, entrambi attivi solo di giorno (cron in UTC `4-22`,
-  ≈06–24 ora italiana; il bot stesso salta comunque le 00–06 per gestire bene ora legale/solare):
-  - `bot.yml` — **giro orario** al minuto :00 (`cron "0 4-22 * * *"`), ultimi 5 post, max 40 risposte/post
-  - `bot-burst.yml` — **giri "lampo"** ai minuti :20 e :40 (`cron "20,40 4-22 * * *"`), ma solo se c'è un
-    post pubblicato da meno di 3 ore (altrimenti esce subito, a costo zero). Stesso "concurrency group":
-    i due non si sovrappongono mai
+- **Repository:** `GianmarcoPorciani/auto-commenti-fb` (**pubblico**: vedi nota privacy sotto)
+- **Pianificazione (dal 26/10/2026):**
+  - **Avvio principale: cron esterno** su cron-job.org, ogni 10 minuti dalle 08:00 alle 23:50 (fuso
+    Europe/Rome). Chiama l'API GitHub `POST /repos/GianmarcoPorciani/auto-commenti-fb/actions/workflows/bot.yml/dispatches`
+    con un token GitHub fine-grained (permesso *Actions: read and write* solo su questo repo).
+    Motivo: gli eventi `schedule` di GitHub nei repo pubblici vengono ritardati o saltati. A ottobre 2026
+    il cron "ogni 30 min" produceva solo 3-8 giri al giorno, a 2-6 ore di distanza.
+  - **Riserva:** `bot.yml` ha ancora un cron GitHub `7 */2 * * *`, utile se il cron esterno si ferma.
+  - `bot-burst.yml` (giro "lampo") non è più pianificato: si avvia solo a mano. Il giro normale
+    sorveglia già il post caldo ogni 5 minuti per tutta la durata della run (max 25 min).
+  - Stesso "concurrency group" `bot`: le run non si sovrappongono mai, al massimo una resta in attesa.
 - **Cosa fa a ogni giro:** mette like ai sostenitori e risponde ai commenti nuovi, saltando tutto ciò
   che è già stato fatto e svuotando la coda delle risposte pendenti
 - **Segreti:** token Facebook e chiave Claude sono nei *GitHub Secrets* (cifrati, non nel codice)
@@ -161,8 +165,8 @@ Lì vedi anche lo storico di tutti i giri (riusciti/falliti).
 ## 6. Come si usa
 
 ### Commenti → automatico
-Non devi fare niente. Ogni ora (di giorno) il bot risponde e mette like ai commenti nuovi, con giri
-"lampo" extra quando pubblichi un post fresco.
+Non devi fare niente. Ogni 10 minuti (08-24) il cron esterno avvia il bot, che risponde e mette like
+ai commenti nuovi e sorveglia il post più fresco ogni 5 minuti.
 
 ### Creare un post → a comando (`crea_post.py`)
 - Scrivi tu il testo, **oppure** lo genera l'AI da un tema, **tu approvi**, poi si pubblica
@@ -214,7 +218,8 @@ Restano comunque consigli: non alzare troppo la frequenza, e tenere d'occhio che
 | Situazione | Cosa fare |
 |------------|-----------|
 | Ti arriva un'email "Run failed" da GitHub | Ora gli errori temporanei di Meta vengono ritentati in automatico: se l'email arriva lo stesso, è probabile un problema **reale** (es. token da rigenerare). Apri il log dalla scheda Actions per la causa. |
-| Vuoi cambiare la frequenza | Modifica i `cron` in `.github/workflows/bot.yml` e `bot-burst.yml` |
+| Vuoi cambiare la frequenza | Modifica il job su cron-job.org (il cron in `bot.yml` è solo la riserva ogni 2 ore) |
+| Il bot non parte da ore | Su cron-job.org controlla la cronologia del job: deve rispondere **204**. Con 401/403 il token GitHub è scaduto o revocato: rigeneralo e aggiorna l'header del job |
 | Vuoi cambiare il tono / i template delle risposte | Modifica `SYSTEM_PROMPT` e le liste `TEMPLATES_NOME`/`TEMPLATES_NEUTRO` in `reply_bot.py` |
 | Vuoi cambiare gli orari di silenzio notturno | Modifica la fascia 00-06 in `main()` di `reply_bot.py` e i `cron` dei workflow |
 | Meta blocca i commenti | Il bot si ferma da solo; aspetta qualche ora e riprende al giro successivo |

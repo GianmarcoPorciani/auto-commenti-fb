@@ -1,12 +1,14 @@
 name: auto-commenti-fb
 
 on:
+  # AVVIO PRINCIPALE: cron ESTERNO (cron-job.org) che chiama l'API workflow_dispatch ogni 10 min,
+  # 08:00-24:00 ora italiana. Gli eventi "schedule" di GitHub nei repo pubblici vengono ritardati o
+  # saltati (a ottobre 2026: 3-8 giri al giorno invece di 48), quelli via API no.
+  workflow_dispatch: {}
+  # RISERVA: un giro ogni 2 ore dal cron di GitHub, se il cron esterno smettesse di funzionare.
+  # E' il codice a fermarsi fuori orario (attivo 08:00-00:00, fuso Europe/Rome).
   schedule:
-    # ogni 30 MIN (:00 e :30), tutto il giorno. E' il CODICE (fuso Europe/Rome preciso) a fermarsi
-    # fuori orario -> attivo 08:00-00:00 italiane (spento 00:00-08:00). Cron 24h per robustezza DST.
-    # (il giro "lampo" aggiunge :15 e :45 quando c'e' un post < 2h -> ogni 15 min in ora d'oro)
-    - cron: "0,30 * * * *"
-  workflow_dispatch: {}       # permette anche l'avvio manuale dal sito GitHub
+    - cron: "7 */2 * * *"
 
 # evita che due esecuzioni si sovrappongano
 concurrency:
