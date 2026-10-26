@@ -67,10 +67,14 @@ Quattro file ricordano lo stato tra un giro e l'altro:
 
 Grazie a questi, ogni giro lavora **solo i commenti nuovi**: rapido ed economico.
 
-> **Stato a prova di conflitto:** quando due giri si accavallano, lo stato non si può più azzerare.
-> Prima di salvare, `merge_stato.py` **unisce** la versione locale e quella remota di ogni file (per gli
-> insiemi la fusione corretta è sempre l'unione). E se un file arrivasse comunque danneggiato, il
-> caricatore recupera gli ID dal testo grezzo invece di ripartire da vuoto.
+> **Stato cifrato e a prova di conflitto (dal 27/10/2026):** il repo è pubblico, quindi questi file
+> **non stanno più in chiaro su GitHub** (collegavano gli ID dei commenti alla loro classificazione).
+> `stato_cloud.py` li tiene **cifrati** (`stato.enc`, Fernet/AES) sul branch `stato`, che ha sempre un
+> solo commit. A inizio giro `stato_cloud.py scarica` li decifra; a fine giro `stato_cloud.py salva`
+> **unisce** locale e remoto (per gli insiemi la fusione corretta è sempre l'unione), cifra e pubblica.
+> La chiave è `STATO_KEY`: GitHub Secret per il cloud e `.env` sul PC. **Senza la chiave lo stato non si
+> recupera**: se manca o è sbagliata il bot si ferma invece di ripartire da zero.
+> Sul PC, per aggiornare la cache locale usata da `dm_targets.py` e dai report: `python stato_cloud.py scarica`.
 
 ### Ottimizzazioni costi (perché spende pochissimo)
 - **Pre-filtro a codice**: i commenti banali non toccano l'AI → meno volume
@@ -90,13 +94,13 @@ Stima reale: **pochi centesimi al giorno** anche su post molto attivi.
 | File | A cosa serve |
 |------|--------------|
 | `reply_bot.py` | Il bot principale: legge, classifica, risponde, mette like (con retry anti-errori temporanei) |
-| `merge_stato.py` | Unisce lo stato locale+remoto prima del salvataggio (evita azzeramenti da conflitti git) |
+| `stato_cloud.py` | Stato cifrato sul branch `stato`: scarica/decifra a inizio giro, unisce/cifra/pubblica a fine giro |
 | `crea_post.py` | Pubblica un post (testo tuo o generato dall'AI) + foto + primo commento @follower |
 | `dm_bot.py` | Messaggi privati ai commentatori (vedi sezione dedicata — richiede `pages_messaging`, non ancora attivo) |
 | `insights.py` | Report statistiche della Pagina |
 | `get_token.py` | Utility per rigenerare un token a lunga durata (raramente serve, vedi sotto) |
 | `requirements.txt` | Le librerie necessarie |
-| `.env` | I segreti (token + chiave AI) — **solo in locale, mai su GitHub** |
+| `.env` | I segreti (token, chiave AI, `STATO_KEY`) — **solo in locale, mai su GitHub** |
 | `.github/workflows/bot.yml` | Giro orario (di giorno) |
 | `.github/workflows/bot-burst.yml` | Giri "lampo" sui post freschi (spinta "ora d'oro") |
 | `done/visti/likati/coda.json` | La memoria persistente |

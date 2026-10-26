@@ -16,3 +16,11 @@ reply_bot_v1_backup.py
 
 # backup locali di stato (non vanno nel repo pubblico)
 *.BACKUP*.json
+
+# Stato del bot: MAI in chiaro nel repo pubblico. Vive cifrato (stato.enc) sul branch 'stato',
+# gestito da stato_cloud.py. In locale questi file sono solo una copia di lavoro.
+done.json
+visti.json
+likati.json
+coda.json
+classificati.json

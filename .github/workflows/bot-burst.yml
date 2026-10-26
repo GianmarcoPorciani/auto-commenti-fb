@@ -25,29 +25,18 @@ jobs:
           python-version: "3.12"
       - name: Installa dipendenze
         run: pip install -r requirements.txt
+
+      - name: Scarica lo stato cifrato (branch 'stato')
+        env:
+          STATO_KEY: ${{ secrets.STATO_KEY }}
+        run: python stato_cloud.py scarica
       - name: Giro lampo (solo se post < 2h) - pause piu' strette (ora d'oro)
         env:
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python -u reply_bot.py --ultimi-post 2 --live --max 40 --solo-se-post-recente 2 --pausa-min 15 --pausa-max 35 --like-min 2 --like-max 6
-      - name: Salva lo stato nel repo (unione a prova di conflitto)
-        run: |
-          git config user.name "auto-commenti-bot"
-          git config user.email "bot@users.noreply.github.com"
-          STATO="done.json visti.json likati.json coda.json classificati.json"
-          ok=0
-          for i in 1 2 3 4 5; do
-            git fetch origin main || true
-            python merge_stato.py FETCH_HEAD $STATO || true
-            # MIXED (non --soft): commit dei SOLI file di stato, senza revertire i sorgenti .py
-            # cambiati su main dopo il checkout stale di questo job.
-            git reset FETCH_HEAD
-            git add $STATO || true
-            if git diff --cached --quiet; then
-              echo "stato invariato, niente da salvare"; ok=1; break
-            fi
-            git commit -m "stato aggiornato (lampo)" || true
-            if git push; then ok=1; break; fi
-            echo "push rifiutato, ritento ($i)..."; sleep 3
-          done
-          [ "$ok" = "1" ] || echo "stato non salvato dopo 5 tentativi (riprovera' al giro successivo)"
+      - name: Salva lo stato cifrato (unione con il remoto, force-push sul branch 'stato')
+        if: always()
+        env:
+          STATO_KEY: ${{ secrets.STATO_KEY }}
+        run: python stato_cloud.py salva

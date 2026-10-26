@@ -799,7 +799,7 @@ def drena_coda(token, coda, done, page_id, max_pub=None, scadenza=None):
             msg = str(e)
             # commento sparito/non accessibile: togli dalla coda (non e' un blocco di Meta)
             if any(s in msg for s in ("does not exist", "Unsupported", "100)", "Object with ID")):
-                # Va segnato anche in done: merge_stato.py ricostruisce la coda come unione con la
+                # Va segnato anche in done: stato_cloud.py ricostruisce la coda come unione con la
                 # versione remota e toglie solo cio' che e' in done. Senza questo, il commento
                 # sparito rientrava in coda a ogni giro.
                 done.add(cid); _salva_set(DONE_FILE, done)
