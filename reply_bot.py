@@ -56,7 +56,12 @@ GRAPH_VERSION = "v21.0"
 GRAPH = f"https://graph.facebook.com/{GRAPH_VERSION}"
 
 # Modello Claude. Haiku = economico/veloce, ideale per risposte di una riga.
-MODEL = "claude-haiku-4-5"
+MODEL = "claude-haiku-5-5"
+# Haiku 5.5 ragiona prima di rispondere (pensiero adattivo, non si spegne) e quel
+# ragionamento conta nei max_tokens: effort "low" lo tiene corto, MARGINE_PENSIERO
+# evita che la risposta JSON venga troncata.
+EFFORT = "low"
+MARGINE_PENSIERO = 2000
 # MODEL = "claude-opus-4-8"   # piu' capace, costo maggiore
 
 # Budget di token PER RISPOSTA (la qualita' la vedi alzando questo valore).
@@ -324,9 +329,9 @@ def classifica_batch(client, chunk, testo_post=""):
 
     resp = client.messages.create(
         model=MODEL,
-        max_tokens=len(chunk) * TOKEN_PER_RISPOSTA + 200,
+        max_tokens=len(chunk) * TOKEN_PER_RISPOSTA + 200 + MARGINE_PENSIERO,
         system=SYSTEM_PROMPT,
-        output_config={"format": {"type": "json_schema", "schema": BATCH_SCHEMA}},
+        output_config={"effort": EFFORT, "format": {"type": "json_schema", "schema": BATCH_SCHEMA}},
         messages=[{"role": "user", "content": contenuto}],
     )
     testo = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")

@@ -86,7 +86,7 @@ Puoi passare a `--post` un URL del post **oppure** l'ID (es. `123..._456...`).
 
 - **Tono delle risposte**: modifica `SYSTEM_PROMPT` in `reply_bot.py`.
 - **Velocità / rischio spam**: alza `DELAY_MIN` / `DELAY_MAX` se Facebook inizia a limitare.
-- **Costo**: in `reply_bot.py` cambia `MODEL` in `"claude-haiku-4-5"` (più economico e veloce,
+- **Costo**: in `reply_bot.py` cambia `MODEL` in `"claude-haiku-5-5"` (più economico e veloce,
   ideale per le risposte di una riga) — circa 5 volte meno costoso di Opus.
 
 ---

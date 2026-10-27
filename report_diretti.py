@@ -116,8 +116,8 @@ def classifica_diretti(client, items, batch=25):
         righe = "\n".join(f'[{k + 1}] "{(t or "")[:200]}"' for k, (idx, t) in enumerate(chunk))
         try:
             resp = client.messages.create(
-                model=rb.MODEL, max_tokens=len(chunk) * 8 + 300, system=DIRETTO_SYS,
-                output_config={"format": {"type": "json_schema", "schema": DIRETTO_SCHEMA}},
+                model=rb.MODEL, max_tokens=len(chunk) * 8 + 300 + rb.MARGINE_PENSIERO, system=DIRETTO_SYS,
+                output_config={"effort": rb.EFFORT, "format": {"type": "json_schema", "schema": DIRETTO_SCHEMA}},
                 messages=[{"role": "user", "content": "Commenti:\n" + righe}])
             testo = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
             for r in json.loads(testo).get("risultati", []):

@@ -82,8 +82,8 @@ def classifica_solo_categoria(client, items, batch=30):
         righe = "\n".join(f'[{k + 1}] "{(msg or "")[:200]}"' for k, (num, msg) in enumerate(chunk))
         try:
             resp = client.messages.create(
-                model=rb.MODEL, max_tokens=len(chunk) * 16 + 200, system=CLASSIFY_SYS,
-                output_config={"format": {"type": "json_schema", "schema": CLASSIFY_SCHEMA}},
+                model=rb.MODEL, max_tokens=len(chunk) * 16 + 200 + rb.MARGINE_PENSIERO, system=CLASSIFY_SYS,
+                output_config={"effort": rb.EFFORT, "format": {"type": "json_schema", "schema": CLASSIFY_SCHEMA}},
                 messages=[{"role": "user", "content": "Commenti:\n" + righe}])
             testo = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
             for r in json.loads(testo).get("risultati", []):
