@@ -48,12 +48,21 @@ REMOTE = "origin"
 def _fernet():
     from cryptography.fernet import Fernet
     key = (os.environ.get("STATO_KEY") or "").strip()
+    # tolleranza agli errori di incolla: riga intera "STATO_KEY=...", virgolette, spazi/a capo
+    if key.upper().startswith("STATO_KEY="):
+        key = key[len("STATO_KEY="):]
+    key = key.strip().strip('"').strip("'").strip()
     if not key:
         sys.exit("ERRORE: manca STATO_KEY (GitHub Secret in cloud, .env sul PC).")
     try:
         return Fernet(key.encode())
     except Exception:
-        sys.exit("ERRORE: STATO_KEY non valida (deve essere una chiave Fernet base64 da 44 caratteri).")
+        # diagnostica SENZA rivelare la chiave: solo lunghezza e tipo di caratteri
+        import string
+        ok = set(string.ascii_letters + string.digits + "-_=")
+        estranei = sum(1 for ch in key if ch not in ok)
+        sys.exit(f"ERRORE: STATO_KEY non valida (deve essere una chiave Fernet base64 da 44 caratteri; "
+                 f"ricevuti {len(key)} caratteri, di cui {estranei} non ammessi).")
 
 
 def _git(*args, input_bytes=None, check=True):
