@@ -44,7 +44,8 @@ except ImportError:
 
 GRAPH_VERSION = "v21.0"
 GRAPH = f"https://graph.facebook.com/{GRAPH_VERSION}"
-MODEL = "claude-opus-4-8"   # per i POST conviene il modello piu' capace (testo curato)
+MODEL = "claude-opus-5-5"   # per i POST conviene il modello piu' capace (testo curato)
+# Opus 5.5 ragiona sempre e il ragionamento conta nei max_tokens: margine ampio.
 
 # Stile dei post di Gianmarco Porciani (modificabile).
 SYSTEM_POST = """Scrivi un post Facebook per la Pagina di Gianmarco Porciani, creator politico
@@ -60,7 +61,8 @@ def genera_testo(tema):
     client = anthropic.Anthropic()
     resp = client.messages.create(
         model=MODEL,
-        max_tokens=900,
+        max_tokens=8000,
+        output_config={"effort": "medium"},
         system=SYSTEM_POST,
         messages=[{"role": "user", "content": f"Scrivi il post su questo tema/notizia:\n{tema}"}],
     )
