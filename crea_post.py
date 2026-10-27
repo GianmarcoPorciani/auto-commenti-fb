@@ -21,6 +21,7 @@ Setup token/chiave: vedi README.md / .env
 import argparse
 import datetime
 import os
+import re
 import sys
 
 import requests
@@ -50,10 +51,15 @@ MODEL = "claude-opus-5-5"   # per i POST conviene il modello piu' capace (testo 
 # Stile dei post di Gianmarco Porciani (modificabile).
 SYSTEM_POST = """Scrivi un post Facebook per la Pagina di Gianmarco Porciani, creator politico
 (area sovranista/identitaria, Futuro Nazionale con Vannacci). Stile: diretto, schietto, senza
-ufficio stampa, paragrafi brevi, tono combattivo ma lucido. Struttura tipica:
-- un titolo forte tutto maiuscolo nella prima riga
-- 2-4 paragrafi brevi che spiegano il punto, con un'inquadratura "noi contro il sistema"
-- chiusura con una call to action ("Condividi se...") e qualche hashtag (#FuturoNazionale #Vannacci ecc.)
+ufficio stampa, tono combattivo ma lucido. Da telefono si vedono solo i primi ~125 caratteri
+prima di "Altro": la prima riga decide se il post viene letto. Struttura:
+- prima riga: titolo forte in MAIUSCOLO, massimo 12 parole (meno di 110 caratteri), con le
+  parole chiave del tema; deve capirsi da sola
+- riga vuota, poi 2-3 paragrafi brevi (1-3 frasi ciascuno) separati da una riga vuota:
+  il fatto, la nostra posizione, cosa proponiamo
+- chiusura: una sola riga con una domanda aperta e sincera che inviti a commentare.
+  Mai "condividi se", "metti like", "tagga", "commenta SI'": Facebook li tratta come esca.
+Corpo fra 60 e 120 parole. Niente hashtag, niente emoji, niente link.
 Niente virgolette attorno al post, niente preamboli: restituisci SOLO il testo del post pronto da pubblicare."""
 
 
@@ -66,7 +72,10 @@ def genera_testo(tema):
         system=SYSTEM_POST,
         messages=[{"role": "user", "content": f"Scrivi il post su questo tema/notizia:\n{tema}"}],
     )
-    return "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
+    testo = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
+    # Niente hashtag, anche se il modello li mette: righe di soli hashtag via, gli altri diventano parole.
+    righe = [r for r in testo.split("\n") if not re.fullmatch(r"\s*(#\w+[\s,.;]*)+", r)]
+    return re.sub(r"(^|\s)#(\w+)", r"\1\2", "\n".join(righe)).strip()
 
 
 def get_page_id(token):
